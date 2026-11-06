@@ -230,14 +230,14 @@
             let offsetX = 0, offsetY = 0;
             
             element.addEventListener('mousedown', function(e) {
-                selectedElement = element;
-                element.classList.add('selected');
-                
-                // Remove selection from other elements
+                // Remove selection from all elements, then select this one
                 document.querySelectorAll('.media-element').forEach(el => {
                     el.classList.remove('selected');
                 });
-                
+
+                selectedElement = element;
+                element.classList.add('selected');
+
                 offsetX = e.clientX - element.getBoundingClientRect().left;
                 offsetY = e.clientY - element.getBoundingClientRect().top;
                 

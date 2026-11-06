@@ -25,14 +25,6 @@
             cursor: move;
         }
         
-        .resize-handle {
-            position: absolute;
-            width: 15px;
-            height: 15px;
-            background: #007bff;
-            cursor: se-resize;
-        }
-        
         .selected {
             border-color: #007bff;
             box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
@@ -52,6 +44,7 @@
             border: 2px dashed #ccc;
             padding: 20px;
             text-align: center;
+            cursor: pointer;
         }
         
         .drag-over {
@@ -71,7 +64,7 @@
     </div>
     
     <div id="fileDropZone" class="file-drop-zone">
-        <p>Drag files here or click "Add Media" to add content</p>
+        <p>Drag files here or onto the canvas, or click here to choose files</p>
         <input type="file" id="fileInput" style="display: none;" multiple accept="image/*,video/*">
     </div>
     
@@ -88,28 +81,33 @@
         const fileInput = document.getElementById('fileInput');
         const sceneContainer = document.getElementById('sceneContainer');
         
-        // Handle drag events
-        dropZone.addEventListener('dragover', function(e) {
-            e.preventDefault();
-            dropZone.classList.add('drag-over');
-        });
-        
-        dropZone.addEventListener('dragleave', function() {
-            dropZone.classList.remove('drag-over');
-        });
-        
-        dropZone.addEventListener('drop', function(e) {
-            e.preventDefault();
-            dropZone.classList.remove('drag-over');
+        // Handle drag events on both the drop zone and the canvas
+        [dropZone, sceneContainer].forEach(function(target) {
+            target.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                target.classList.add('drag-over');
+            });
             
-            const files = e.files || e.dataTransfer.files;
-            handleFiles(files);
+            target.addEventListener('dragleave', function() {
+                target.classList.remove('drag-over');
+            });
+            
+            target.addEventListener('drop', function(e) {
+                e.preventDefault();
+                target.classList.remove('drag-over');
+                handleFiles(e.dataTransfer.files);
+            });
+        });
+        
+        // Clicking the drop zone opens the file picker
+        dropZone.addEventListener('click', function() {
+            fileInput.click();
         });
         
         // Handle file input
         fileInput.addEventListener('change', function(e) {
-            const files = e.target.files;
-            handleFiles(files);
+            handleFiles(e.target.files);
+            fileInput.value = ''; // allow choosing the same file again
         });
         
         function handleFiles(files) {
@@ -232,10 +230,6 @@
             let offsetX = 0, offsetY = 0;
             
             element.addEventListener('mousedown', function(e) {
-                if (e.target.classList.contains('resize-handle')) {
-                    return; // Don't drag if clicking resize handle
-                }
-                
                 selectedElement = element;
                 element.classList.add('selected');
                 

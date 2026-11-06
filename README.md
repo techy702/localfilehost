@@ -10,6 +10,7 @@ A single-page, browser-based tool for arranging media elements on a canvas, in t
 - Add a sample video, a placeholder image, or a text box with the toolbar buttons
 - Reposition elements on the canvas by dragging them
 - Video playback through the browser's built-in controls
+- Auto Arrange tiles everything into a grid (automatic or 1-4 columns), scaling each item to fit its cell
 - Clear the whole canvas with one click
 
 ## Usage
@@ -17,7 +18,8 @@ A single-page, browser-based tool for arranging media elements on a canvas, in t
 1. Open `index.html` in your browser.
 2. Drag files onto the canvas or the dashed drop zone above it, click the drop zone to choose files, or use the **Add Video**, **Add Image** and **Add Text** buttons.
 3. Click and drag an element on the canvas to reposition it.
-4. Use **Clear Scene** to remove everything.
+4. Click **Auto Arrange** to tile everything into a grid. Pick the number of columns first, or leave it on Auto.
+5. Use **Clear Scene** to remove everything.
 
 ## Requirements
 

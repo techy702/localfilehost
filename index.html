@@ -60,6 +60,16 @@
         <button onclick="addMediaElement()">Add Video</button>
         <button onclick="addImageButton()">Add Image</button>
         <button onclick="addText()">Add Text</button>
+        <button onclick="arrangeGrid()">Auto Arrange</button>
+        <label>Columns:
+            <select id="gridColumns">
+                <option value="0">Auto</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+            </select>
+        </label>
         <button onclick="clearScene()">Clear Scene</button>
     </div>
     
@@ -310,6 +320,50 @@
                 document.removeEventListener('mousemove', dragElement);
                 document.removeEventListener('mouseup', stopDrag);
             }
+        }
+        
+        // ---- Auto arrange ----
+        
+        // Tile all elements into a grid (row 1 left to right, then row 2, ...).
+        // Each element is scaled to fit its cell, keeping its aspect ratio.
+        function arrangeGrid() {
+            const elements = Array.from(sceneContainer.querySelectorAll('.media-element'));
+            if (elements.length === 0) return;
+            
+            const requested = parseInt(document.getElementById('gridColumns').value, 10);
+            const cols = Math.min(elements.length,
+                requested > 0 ? requested : Math.ceil(Math.sqrt(elements.length)));
+            const rows = Math.ceil(elements.length / cols);
+            
+            const gap = 8;
+            const cellW = (sceneContainer.clientWidth - gap * (cols + 1)) / cols;
+            const cellH = (sceneContainer.clientHeight - gap * (rows + 1)) / rows;
+            
+            elements.forEach(function(el, i) {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                
+                // Current size (without the 2px border on each side) gives the aspect ratio
+                const border = el.offsetWidth - el.clientWidth;
+                const aspect = el.clientWidth / el.clientHeight;
+                const maxW = cellW - border;
+                const maxH = cellH - border;
+                let w = maxW;
+                let h = w / aspect;
+                if (h > maxH) {
+                    h = maxH;
+                    w = h * aspect;
+                }
+                el.style.width = Math.max(1, Math.floor(w)) + 'px';
+                el.style.height = Math.max(1, Math.floor(h)) + 'px';
+                
+                // Center inside the cell
+                const cellLeft = gap + col * (cellW + gap);
+                const cellTop = gap + row * (cellH + gap);
+                moveElement(el,
+                    cellLeft + (cellW - el.offsetWidth) / 2,
+                    cellTop + (cellH - el.offsetHeight) / 2);
+            });
         }
         
         // Clear scene

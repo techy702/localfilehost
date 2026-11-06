@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Local Media Host</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        
+        .scene-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            border: 2px solid #ccc;
+            background: #f5f5f5;
+        }
+        
+        .media-element {
+            position: absolute;
+            border: 2px solid transparent;
+            cursor: move;
+        }
+        
+        .resize-handle {
+            position: absolute;
+            width: 15px;
+            height: 15px;
+            background: #007bff;
+            cursor: se-resize;
+        }
+        
+        .selected {
+            border-color: #007bff;
+            box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+        }
+        
+        .controls {
+            margin: 10px 0;
+        }
+        
+        button {
+            padding: 8px 12px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        
+        .file-drop-zone {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .drag-over {
+            border-color: #007bff;
+            background: rgba(0, 123, 255, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <h1>Local Media Host</h1>
+    
+    <div class="controls">
+        <button onclick="addMediaElement()">Add Video</button>
+        <button onclick="addImage()">Add Image</button>
+        <button onclick="addText()">Add Text</button>
+        <button onclick="clearScene()">Clear Scene</button>
+    </div>
+    
+    <div id="fileDropZone" class="file-drop-zone">
+        <p>Drag files here or click "Add Media" to add content</p>
+        <input type="file" id="fileInput" style="display: none;" multiple accept="image/*,video/*">
+    </div>
+    
+    <div class="scene-container" id="sceneContainer">
+        <!-- Media elements will be added here -->
+    </div>
+    
+    <script>
+        let elementCounter = 1;
+        let selectedElement = null;
+        
+        // Handle file drops
+        const dropZone = document.getElementById('fileDropZone');
+        const fileInput = document.getElementById('fileInput');
+        const sceneContainer = document.getElementById('sceneContainer');
+        
+        // Handle drag events
+        dropZone.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+        
+        dropZone.addEventListener('dragleave', function() {
+            dropZone.classList.remove('drag-over');
+        });
+        
+        dropZone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            
+            const files = e.files || e.dataTransfer.files;
+            handleFiles(files);
+        });
+        
+        // Handle file input
+        fileInput.addEventListener('change', function(e) {
+            const files = e.target.files;
+            handleFiles(files);
+        });
+        
+        function handleFiles(files) {
+            Array.from(files).forEach(file => {
+                if (file.type.startsWith('image')) {
+                    addImageFromFile(file);
+                } else if (file.type.startsWith('video')) {
+                    addVideoFromFile(file);
+                }
+            });
+        }
+        
+        // Add video from file
+        function addVideoFromFile(file) {
+            const element = document.createElement('div');
+            element.className = 'media-element';
+            element.style.width = '320px';
+            element.style.height = '240px';
+            element.style.background = '#e9ecef';
+            
+            const video = document.createElement('video');
+            video.controls = true;
+            video.style.width = '100%'
+            video.style.height = '100%'
+            
+            // Create object URL for local file
+            const fileUrl = URL.createObjectURL(file);
+            video.src = fileUrl;
+            
+            element.appendChild(video);
+            sceneContainer.appendChild(element);
+            
+            // Make draggable
+            makeDraggable(element);
+        }
+        
+        // Add image from file
+        function addImageFromFile(file) {
+            const element = document.createElement('div');
+            element.className = 'media-element';
+            element.style.width = '200px';
+            element.style.height = '150px';
+            
+            const img = document.createElement('img');
+            img.src = URL.createObjectURL(file);
+            img.style.width = '100%';
+            img.style.height = '100%';
+            
+            element.appendChild(img);
+            sceneContainer.appendChild(element);
+            
+            // Make draggable
+            makeDraggable(element);
+        }
+        
+        // Add video from URL (default)
+        function addMediaElement() {
+            const element = document.createElement('div');
+            element.className = 'media-element';
+            element.style.width = '320px';
+            element.style.height = '240px';
+            
+            const video = document.createElement('video');
+            video.src = 'https://sample-videos.com/video123/mp4/768x432_1mb.mp4';
+            video.controls = true;
+            video.style.width = '100%';
+            video.style.height = '100%';
+            
+            element.appendChild(video);
+            sceneContainer.appendChild(element);
+            
+            makeDraggable(element);
+        }
+        
+        // Add image
+        function addImage() {
+            const element = document.createElement('div');
+            element.className = 'media-element';
+            element.style.width = '200px';
+            element.style.height = '150px';
+            
+            const img = document.createElement('img');
+            img.src = 'https://placehold.co/200x150';
+            img.style.width = '100%';
+            img.style.height = '100%';
+            
+            element.appendChild(img);
+            sceneContainer.appendChild(element);
+            
+            makeDraggable(element);
+        }
+        
+        // Add text
+        function addText() {
+            const element = document.createElement('div');
+            element.className = 'media-element';
+            element.style.width = '200px';
+            element.style.height = '150px';
+            element.style.background = '#e9ecef';
+            element.style.display = 'flex';
+            element.style.alignItems = 'center';
+            element.style.justifyContent = 'center';
+            
+            const text = document.createElement('div');
+            text.textContent = 'Sample Text';
+            text.style.color = 'black';
+            text.style.fontSize = '16px';
+            text.style.fontFamily = 'Arial';
+            text.style.textAlign = 'center';
+            text.style.width = '100%';
+            text.style.height = '100%';
+            element.appendChild(text);
+            sceneContainer.appendChild(element);
+            
+            makeDraggable(element);
+        }
+        
+        // Make element draggable
+        function makeDraggable(element) {
+            let offsetX = 0, offsetY = 0;
+            
+            element.addEventListener('mousedown', function(e) {
+                if (e.target.classList.contains('resize-handle')) {
+                    return; // Don't drag if clicking resize handle
+                }
+                
+                selectedElement = element;
+                element.classList.add('selected');
+                
+                // Remove selection from other elements
+                document.querySelectorAll('.media-element').forEach(el => {
+                    el.classList.remove('selected');
+                });
+                
+                offsetX = e.clientX - element.getBoundingClientRect().left;
+                offsetY = e.clientY - element.getBoundingClientRect().top;
+                
+                document.addEventListener('mousemove', dragElement);
+                document.addEventListener('mouseup', stopDrag);
+            });
+            
+            function dragElement(e) {
+                if (!selectedElement) return;
+                
+                let newLeft = e.clientX - offsetX - document.body.getBoundingClientRect().left;
+                let newTop = e.clientY - offsetY - document.body.getBoundingClientRect().top;
+                
+                selectedElement.style.left = newLeft + 'px';
+                selectedElement.style.top = newTop + 'px';
+            }
+            
+            function stopDrag() {
+                document.removeEventListener('mousemove', dragElement);
+                document.removeEventListener('mouseup', stopDrag);
+            }
+        }
+        
+        // Clear scene
+        function clearScene() {
+            sceneContainer.innerHTML = '';
+        }
+    </script>
+</body>
+</html>

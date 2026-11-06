@@ -2,6 +2,8 @@
 
 A single-page, browser-based tool for arranging media elements on a canvas, in the spirit of OBS.
 
+[Launch LocalFileHost](https://techy702.github.io/localfilehost/)
+
 ## Features
 
 - Drag and drop images, video, audio, PDFs and text files (`.txt`, `.md`, `.json`, `.csv`, `.log`) from your file manager (Finder, Explorer) onto the drop zone or the canvas, or click the drop zone to choose files

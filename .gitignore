@@ -1,17 +1,6 @@
 # OS files
-.DDS
-DS_Store
+.DS_Store
 Thumbs.db
-
-# Temporary files
-*.tmp
-*.temp
-
-# OS temporary files
-.DDS
-Thumbs.db
-Thumbs.db
-.DDS
 
 # Temporary files
 *.tmp

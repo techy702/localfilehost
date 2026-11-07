@@ -110,3 +110,11 @@ fi
 echo "Built $APP"
 echo "Apple Silicon only (arch: $ARCHS). Ad-hoc signed, not notarized."
 echo "Gatekeeper will still block copies that were downloaded. See the README."
+
+# Keep LocalFileHost.app as the top-level folder inside the zip. Uploading the
+# .app directory itself makes GitHub's artifact extract to a bare Contents folder.
+ZIP="$ROOT/dist/LocalFileHost-macos-arm64-unsigned.zip"
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+python3 "$ROOT/scripts/verify-macos-artifact-zip.py" "$ZIP"
+echo "Artifact zip: $ZIP"

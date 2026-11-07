@@ -10,7 +10,10 @@ import plistlib
 import platform
 import shutil
 import subprocess
+import sys
+import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,6 +99,8 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("arm64-apple-macosx12.0", script)
         self.assertIn("codesign --force --sign -", script)
         self.assertIn('cp "$ROOT/index.html"', script)
+        self.assertIn("ditto -c -k --keepParent", script)
+        self.assertIn("verify-macos-artifact-zip.py", script)
         self.assertNotIn("APPLE_CERTIFICATE", script)
         self.assertNotIn("notarytool", script)
         self.assertNotIn("altool", script)
@@ -106,6 +111,8 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("runs-on: macos-15", workflow)
         self.assertIn("upload-artifact", workflow)
         self.assertIn("LocalFileHost-macos-arm64-unsigned", workflow)
+        self.assertIn("dist/LocalFileHost-macos-arm64-unsigned.zip", workflow)
+        self.assertNotIn("path: dist/LocalFileHost.app", workflow)
         self.assertIn("tests.test_macos_packaging", workflow)
         self.assertIn("tests.test_resize_browser", workflow)
         self.assertNotIn("macos-14", workflow)
@@ -116,6 +123,34 @@ class PackagingTests(unittest.TestCase):
             "secrets.",
         ):
             self.assertNotIn(forbidden, workflow)
+
+    def test_artifact_zip_rejects_a_bare_contents_folder(self):
+        verifier = ROOT / "scripts" / "verify-macos-artifact-zip.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            good = Path(tmp) / "good.zip"
+            bare = Path(tmp) / "bare.zip"
+            with zipfile.ZipFile(good, "w") as archive:
+                archive.writestr("LocalFileHost.app/Contents/Info.plist", "plist")
+                archive.writestr("LocalFileHost.app/Contents/MacOS/LocalFileHost", "bin")
+                archive.writestr("LocalFileHost.app/Contents/Resources/index.html", "page")
+            with zipfile.ZipFile(bare, "w") as archive:
+                archive.writestr("Contents/Info.plist", "plist")
+                archive.writestr("Contents/MacOS/LocalFileHost", "bin")
+                archive.writestr("Contents/Resources/index.html", "page")
+            ok = subprocess.run(
+                [sys.executable, str(verifier), str(good)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(ok.returncode, 0, ok.stderr)
+            self.assertIn("LocalFileHost.app", ok.stdout)
+            broken = subprocess.run(
+                [sys.executable, str(verifier), str(bare)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(broken.returncode, 1)
+            self.assertIn("bare Contents", broken.stderr)
 
     def test_build_script_syntax_and_help(self):
         self.assertTrue(os.access(SCRIPT, os.X_OK))

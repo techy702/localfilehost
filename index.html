@@ -15,13 +15,20 @@
             font-family: Arial, sans-serif;
         }
         
+        .workspace {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+        }
+        
         .scene-container {
             position: relative;
             width: 800px;
             height: 600px;
             border: 2px solid #ccc;
             background: #f5f5f5;
-            overflow: visible;
+            overflow: hidden;
+            flex: 0 0 auto;
         }
         
         .media-element {
@@ -101,6 +108,36 @@
         html.resize-gesture * {
             cursor: var(--resize-cursor) !important;
         }
+        
+        button.is-on {
+            background: #cfe8ff;
+            font-weight: bold;
+        }
+        
+        .layers {
+            width: 230px;
+            font-size: 14px;
+        }
+        
+        .layers h2 {
+            margin: 0 0 8px;
+            font-size: 16px;
+        }
+        
+        .layer-note, .opacity-row {
+            margin: 0 0 8px;
+        }
+        
+        .layer-actions button, #layerList button {
+            display: block;
+            width: 100%;
+            margin: 4px 0;
+            text-align: left;
+        }
+        
+        #layerList button.selected {
+            border: 2px solid #007bff;
+        }
     </style>
 </head>
 <body>
@@ -121,17 +158,39 @@
             </select>
         </label>
         <button onclick="clearScene()">Clear Scene</button>
+        <button type="button" id="muteAllButton" aria-pressed="false">Mute All: Off</button>
+        <button type="button" id="loopAllButton" aria-pressed="false">Loop All: Off</button>
     </div>
     
-    <p class="hint">Drag the blue corner handles to resize. The opposite corner stays put. Hold Shift to keep the aspect ratio. Chosen files stay in this window and are not sent to a server.</p>
+    <p class="hint">Drag the blue corner handles to resize. The opposite corner stays put. Hold Shift to keep the aspect ratio. Items may hang off the canvas so a widescreen picture can line up with a frame; the canvas clips what you see. Chosen files stay in this window and are not sent to a server.</p>
     
     <div id="fileDropZone" class="file-drop-zone">
         <p>Drag files here or onto the canvas, or click here to choose files</p>
         <input type="file" id="fileInput" style="display: none;" multiple accept="image/*,video/*,audio/*,application/pdf,text/*,.md,.json,.csv,.log">
     </div>
     
-    <div class="scene-container" id="sceneContainer">
-        <!-- Media elements will be added here -->
+    <div class="workspace">
+        <div class="scene-container" id="sceneContainer">
+            <!-- Media elements will be added here -->
+        </div>
+        <aside class="layers" id="layerPanel">
+            <h2>Layers</h2>
+            <p class="layer-note">Front is listed first. An item that sits outside the canvas stays in this list.</p>
+            <div class="opacity-row">
+                <label>Opacity
+                    <input id="opacityInput" type="range" min="0" max="100" value="100" disabled>
+                </label>
+                <span id="opacityValue">100%</span>
+            </div>
+            <div class="layer-actions">
+                <button type="button" id="layerFront">Front</button>
+                <button type="button" id="layerForward">Forward</button>
+                <button type="button" id="layerBackward">Backward</button>
+                <button type="button" id="layerBack">Back</button>
+                <button type="button" id="layerShow">Bring into view</button>
+            </div>
+            <div id="layerList"></div>
+        </aside>
     </div>
     
     <script>
@@ -206,6 +265,10 @@
         let selectedElement = null;
         let placedCount = 0;
         let objectUrls = [];
+        var layerSerial = 0;
+        var muteAllOn = false;
+        var loopAllOn = false;
+        var MAX_EDGE = 10000;
         
         // Smallest size a resize may shrink an item to, unless it was
         // already smaller (then it cannot shrink further).
@@ -320,8 +383,11 @@
             const element = document.createElement('div');
             element.className = 'media-element';
             element.dataset.kind = kind;
+            element.dataset.layerId = String(++layerSerial);
             element.style.width = w + 'px';
             element.style.height = h + 'px';
+            element.style.opacity = '1';
+            element.style.zIndex = String(nextZ() + 1);
             const frame = document.createElement('div');
             frame.className = 'media-content';
             frame.appendChild(content);
@@ -340,15 +406,22 @@
             }
             moveElement(element, left, top);
             makeDraggable(element);
+            refreshLayers();
             return element;
         }
         
-        // Position an element, keeping it inside the canvas
+        // Position may hang off the canvas. The scene clips painting.
         function moveElement(element, left, top) {
-            const maxLeft = sceneContainer.clientWidth - element.offsetWidth;
-            const maxTop = sceneContainer.clientHeight - element.offsetHeight;
-            element.style.left = Math.max(0, Math.min(left, maxLeft)) + 'px';
-            element.style.top = Math.max(0, Math.min(top, maxTop)) + 'px';
+            element.style.left = Math.round(left) + 'px';
+            element.style.top = Math.round(top) + 'px';
+        }
+        
+        function nextZ() {
+            var max = 0;
+            sceneContainer.querySelectorAll('.media-element').forEach(function(el) {
+                max = Math.max(max, parseInt(el.style.zIndex, 10) || 0);
+            });
+            return max;
         }
         
         function fillStyle(el) {
@@ -375,6 +448,7 @@
             fillStyle(video);
             video.controls = true;
             video.preload = 'metadata';
+            applyTransport(video);
             video.onloadedmetadata = function() {
                 const s = fitToScene(video.videoWidth || 320, video.videoHeight || 240);
                 addElement(video, s.w, s.h, pos, 'video');
@@ -388,6 +462,7 @@
             audio.controls = true;
             audio.style.width = '100%';
             audio.style.display = 'block';
+            applyTransport(audio);
             audio.src = src;
             addElement(audio, 320, 54, pos, 'audio');
         }
@@ -443,19 +518,21 @@
         function selectElement(element) {
             sceneContainer.querySelectorAll('.media-element').forEach(function(el) {
                 el.classList.remove('selected');
-                el.style.zIndex = '';
             });
             selectedElement = element;
-            element.classList.add('selected');
-            element.style.zIndex = '2';
+            if (element) element.classList.add('selected');
+            refreshLayers();
         }
         
         function makeDraggable(element) {
             let offsetX = 0, offsetY = 0;
+            let originX = 0, originY = 0;
+            let moved = false;
             
             element.addEventListener('mousedown', function(e) {
                 // Corner handles resize. They must not also start a move.
                 if (e.target.closest && e.target.closest('.resize-handle')) return;
+                if (e.button !== 0) return;
                 
                 selectElement(element);
                 
@@ -463,13 +540,29 @@
                 const rect = element.getBoundingClientRect();
                 offsetX = e.clientX - rect.left;
                 offsetY = e.clientY - rect.top;
+                originX = e.clientX;
+                originY = e.clientY;
+                moved = false;
                 
                 document.addEventListener('mousemove', dragElement);
                 document.addEventListener('mouseup', stopDrag);
             });
             
+            function contentFrame() {
+                return element.querySelector('.media-content');
+            }
+            
             function dragElement(e) {
                 if (selectedElement !== element) return;
+                if (Math.abs(e.clientX - originX) > 3 || Math.abs(e.clientY - originY) > 3) {
+                    if (!moved) {
+                        moved = true;
+                        // Keep the mouseup from landing on the play control.
+                        var frame = contentFrame();
+                        if (frame) frame.style.pointerEvents = 'none';
+                    }
+                }
+                if (!moved) return;
                 // Convert mouse position to canvas coordinates
                 const rect = sceneContainer.getBoundingClientRect();
                 moveElement(element,
@@ -480,6 +573,18 @@
             function stopDrag() {
                 document.removeEventListener('mousemove', dragElement);
                 document.removeEventListener('mouseup', stopDrag);
+                if (!moved) return;
+                var frame = contentFrame();
+                var swallow = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    element.removeEventListener('click', swallow, true);
+                };
+                element.addEventListener('click', swallow, true);
+                setTimeout(function() {
+                    element.removeEventListener('click', swallow, true);
+                    if (frame) frame.style.pointerEvents = '';
+                }, 0);
             }
         }
         
@@ -509,8 +614,10 @@
             
             var right = o.left + o.width + o.borderX;
             var bottom = o.top + o.height + o.borderY;
-            var maxW = o.anchorRight ? right - o.borderX : o.sceneW - o.left - o.borderX;
-            var maxH = o.anchorBottom ? bottom - o.borderY : o.sceneH - o.top - o.borderY;
+            // Size may extend past the canvas so letterbox bars can hang off
+            // an overlay. Painting is clipped by the scene.
+            var maxW = MAX_EDGE;
+            var maxH = MAX_EDGE;
             
             w = clampSize(w, o.minW, maxW);
             h = clampSize(h, o.minH, maxH);
@@ -674,14 +781,155 @@
             });
         }
         
-        // Clear scene
+        // Clear scene. Mute All and Loop All stay as they are.
         function clearScene() {
             sceneContainer.innerHTML = '';
             selectedElement = null;
             placedCount = 0;
             objectUrls.forEach(url => URL.revokeObjectURL(url));
             objectUrls = [];
+            refreshLayers();
         }
+        
+        function applyTransport(media) {
+            media.muted = muteAllOn;
+            media.loop = loopAllOn;
+        }
+        
+        function syncTransportButtons() {
+            var mute = document.getElementById('muteAllButton');
+            var loop = document.getElementById('loopAllButton');
+            mute.setAttribute('aria-pressed', muteAllOn ? 'true' : 'false');
+            loop.setAttribute('aria-pressed', loopAllOn ? 'true' : 'false');
+            mute.textContent = muteAllOn ? 'Mute All: On' : 'Mute All: Off';
+            loop.textContent = loopAllOn ? 'Loop All: On' : 'Loop All: Off';
+            mute.classList.toggle('is-on', muteAllOn);
+            loop.classList.toggle('is-on', loopAllOn);
+        }
+        
+        function eachMedia(fn) {
+            sceneContainer.querySelectorAll('video, audio').forEach(fn);
+        }
+        
+        function toggleMuteAll() {
+            muteAllOn = !muteAllOn;
+            eachMedia(function(media) { media.muted = muteAllOn; });
+            syncTransportButtons();
+        }
+        
+        function toggleLoopAll() {
+            loopAllOn = !loopAllOn;
+            eachMedia(function(media) { media.loop = loopAllOn; });
+            syncTransportButtons();
+        }
+        
+        function layerItems() {
+            return Array.from(sceneContainer.querySelectorAll('.media-element')).sort(function(a, b) {
+                return (parseInt(b.style.zIndex, 10) || 0) - (parseInt(a.style.zIndex, 10) || 0);
+            });
+        }
+        
+        function layerLabel(el) {
+            var kind = el.dataset.kind || 'item';
+            return kind.charAt(0).toUpperCase() + kind.slice(1) + ' ' + el.dataset.layerId;
+        }
+        
+        function refreshLayers() {
+            var list = document.getElementById('layerList');
+            list.textContent = '';
+            layerItems().forEach(function(el) {
+                var row = document.createElement('button');
+                row.type = 'button';
+                row.className = 'layer-row' + (el === selectedElement ? ' selected' : '');
+                row.textContent = layerLabel(el);
+                row.addEventListener('click', function() { selectElement(el); });
+                list.appendChild(row);
+            });
+            var opacity = document.getElementById('opacityInput');
+            var readout = document.getElementById('opacityValue');
+            if (!selectedElement) {
+                opacity.disabled = true;
+                opacity.value = '100';
+                readout.textContent = '100%';
+            } else {
+                opacity.disabled = false;
+                var parsed = parseFloat(selectedElement.style.opacity);
+                var value = Math.round((isNaN(parsed) ? 1 : parsed) * 100);
+                opacity.value = String(value);
+                readout.textContent = value + '%';
+            }
+        }
+        
+        function swapZ(a, b) {
+            var z = a.style.zIndex;
+            a.style.zIndex = b.style.zIndex;
+            b.style.zIndex = z;
+            refreshLayers();
+        }
+        
+        function bringForward() {
+            if (!selectedElement) return;
+            var items = layerItems();
+            var i = items.indexOf(selectedElement);
+            if (i <= 0) return;
+            swapZ(selectedElement, items[i - 1]);
+        }
+        
+        function sendBackward() {
+            if (!selectedElement) return;
+            var items = layerItems();
+            var i = items.indexOf(selectedElement);
+            if (i < 0 || i >= items.length - 1) return;
+            swapZ(selectedElement, items[i + 1]);
+        }
+        
+        function bringToFront() {
+            if (!selectedElement) return;
+            selectedElement.style.zIndex = String(nextZ() + 1);
+            refreshLayers();
+        }
+        
+        function sendToBack() {
+            if (!selectedElement) return;
+            var min = 0;
+            layerItems().forEach(function(el) {
+                min = Math.min(min, parseInt(el.style.zIndex, 10) || 0);
+            });
+            selectedElement.style.zIndex = String(min - 1);
+            refreshLayers();
+        }
+        
+        // Pull a fully hidden item back until a corner can be grabbed.
+        function bringIntoView() {
+            if (!selectedElement) return;
+            var el = selectedElement;
+            var left = el.offsetLeft;
+            var top = el.offsetTop;
+            var sceneW = sceneContainer.clientWidth;
+            var sceneH = sceneContainer.clientHeight;
+            var margin = 48;
+            if (left + el.offsetWidth < margin) left = margin - el.offsetWidth;
+            if (left > sceneW - margin) left = sceneW - margin;
+            if (top + el.offsetHeight < margin) top = margin - el.offsetHeight;
+            if (top > sceneH - margin) top = sceneH - margin;
+            moveElement(el, left, top);
+        }
+        
+        document.getElementById('muteAllButton').addEventListener('click', toggleMuteAll);
+        document.getElementById('loopAllButton').addEventListener('click', toggleLoopAll);
+        document.getElementById('layerFront').addEventListener('click', bringToFront);
+        document.getElementById('layerForward').addEventListener('click', bringForward);
+        document.getElementById('layerBackward').addEventListener('click', sendBackward);
+        document.getElementById('layerBack').addEventListener('click', sendToBack);
+        document.getElementById('layerShow').addEventListener('click', bringIntoView);
+        document.getElementById('opacityInput').addEventListener('input', function(e) {
+            if (!selectedElement) return;
+            var value = Number(e.target.value);
+            selectedElement.style.opacity = String(value / 100);
+            document.getElementById('opacityValue').textContent = value + '%';
+        });
+        syncTransportButtons();
+        refreshLayers();
     </script>
 </body>
 </html>

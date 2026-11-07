@@ -48,5 +48,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: LocalFileHost-macos-arm64-unsigned
-          path: dist/LocalFileHost.app
+          path: dist/LocalFileHost-macos-arm64-unsigned.zip
           if-no-files-found: error

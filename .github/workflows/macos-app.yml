@@ -1,0 +1,52 @@
+name: macOS app
+
+# Reproducible checks for the shared page and the unsigned Apple Silicon app.
+# The macOS job uploads a build artifact. It does not create a GitHub Release
+# and it does not use a signing certificate.
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  packaging:
+    name: Packaging checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Packaging tests
+        run: python3 -m unittest tests.test_macos_packaging
+
+  browser:
+    name: Browser resize checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install browser test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          pip install -r tests/requirements.txt
+          playwright install --with-deps chromium
+      - name: Resize, file picking, and playback tests
+        run: python3 -m unittest tests.test_resize_browser
+
+  macos:
+    name: Unsigned Apple Silicon app
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build unsigned arm64 app
+        run: ./scripts/build-macos-app.sh
+      - name: Upload unsigned app
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalFileHost-macos-arm64-unsigned
+          path: dist/LocalFileHost.app
+          if-no-files-found: error

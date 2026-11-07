@@ -5,3 +5,10 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Local macOS build output. The runnable app is produced on a Mac.
+dist/
+
+# Test caches
+__pycache__/
+*.pyc

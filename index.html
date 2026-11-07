@@ -17,12 +17,20 @@
             height: 600px;
             border: 2px solid #ccc;
             background: #f5f5f5;
+            overflow: visible;
         }
         
         .media-element {
             position: absolute;
             border: 2px solid transparent;
             cursor: move;
+            overflow: visible;
+        }
+        
+        .media-content {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
         }
         
         .selected {
@@ -40,6 +48,12 @@
             margin: 5px;
         }
         
+        .hint {
+            margin: 0 0 10px;
+            color: #333;
+            font-size: 14px;
+        }
+        
         .file-drop-zone {
             border: 2px dashed #ccc;
             padding: 20px;
@@ -50,6 +64,38 @@
         .drag-over {
             border-color: #007bff;
             background: rgba(0, 123, 255, 0.1);
+        }
+        
+        /* Visible corner grips. Centered on the corner so they stay
+           grabbable on images, video, and text. */
+        .resize-handle {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            background: #fff;
+            border: 2px solid #007bff;
+            border-radius: 2px;
+            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+            z-index: 5;
+            user-select: none;
+            touch-action: none;
+        }
+        
+        .resize-handle.nw { left: -7px; top: -7px; cursor: nwse-resize; }
+        .resize-handle.ne { right: -7px; top: -7px; cursor: nesw-resize; }
+        .resize-handle.sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+        .resize-handle.se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+        
+        .media-element.resizing .media-content {
+            pointer-events: none;
+        }
+        
+        html.resize-gesture,
+        html.resize-gesture * {
+            cursor: var(--resize-cursor) !important;
         }
     </style>
 </head>
@@ -73,6 +119,8 @@
         <button onclick="clearScene()">Clear Scene</button>
     </div>
     
+    <p class="hint">Drag the blue corner handles to resize. The opposite corner stays put. Hold Shift to keep the aspect ratio.</p>
+    
     <div id="fileDropZone" class="file-drop-zone">
         <p>Drag files here or onto the canvas, or click here to choose files</p>
         <input type="file" id="fileInput" style="display: none;" multiple accept="image/*,video/*,audio/*,application/pdf,text/*,.md,.json,.csv,.log">
@@ -90,6 +138,23 @@
         let selectedElement = null;
         let placedCount = 0;
         let objectUrls = [];
+        
+        // Smallest size a resize may shrink an item to, unless it was
+        // already smaller (then it cannot shrink further).
+        var MIN_SIZE = {
+            image: { w: 48, h: 48 },
+            video: { w: 160, h: 90 },
+            audio: { w: 180, h: 40 },
+            pdf: { w: 120, h: 120 },
+            text: { w: 80, h: 48 }
+        };
+        
+        var RESIZE_CORNERS = [
+            { corner: 'nw', anchorRight: true, anchorBottom: true, cursor: 'nwse-resize' },
+            { corner: 'ne', anchorRight: false, anchorBottom: true, cursor: 'nesw-resize' },
+            { corner: 'sw', anchorRight: true, anchorBottom: false, cursor: 'nesw-resize' },
+            { corner: 'se', anchorRight: false, anchorBottom: false, cursor: 'nwse-resize' }
+        ];
         
         // Decide what kind of media a file is (by MIME type, falling back to extension)
         function kindOf(file) {
@@ -169,12 +234,17 @@
         }
         
         // Create the element, size it, and place it (centered on pos, or cascaded)
-        function addElement(content, w, h, pos) {
+        function addElement(content, w, h, pos, kind) {
             const element = document.createElement('div');
             element.className = 'media-element';
+            element.dataset.kind = kind;
             element.style.width = w + 'px';
             element.style.height = h + 'px';
-            element.appendChild(content);
+            const frame = document.createElement('div');
+            frame.className = 'media-content';
+            frame.appendChild(content);
+            element.appendChild(frame);
+            attachResizeHandles(element);
             sceneContainer.appendChild(element);
             
             let left, top;
@@ -212,9 +282,9 @@
             img.draggable = false; // let our own drag handling win over the browser's image drag
             img.onload = function() {
                 const s = fitToScene(img.naturalWidth || 200, img.naturalHeight || 150);
-                addElement(img, s.w, s.h, pos);
+                addElement(img, s.w, s.h, pos, 'image');
             };
-            img.onerror = function() { addElement(img, 200, 150, pos); };
+            img.onerror = function() { addElement(img, 200, 150, pos, 'image'); };
             img.src = src;
         }
         
@@ -225,9 +295,9 @@
             video.preload = 'metadata';
             video.onloadedmetadata = function() {
                 const s = fitToScene(video.videoWidth || 320, video.videoHeight || 240);
-                addElement(video, s.w, s.h, pos);
+                addElement(video, s.w, s.h, pos, 'video');
             };
-            video.onerror = function() { addElement(video, 320, 240, pos); };
+            video.onerror = function() { addElement(video, 320, 240, pos, 'video'); };
             video.src = src;
         }
         
@@ -237,7 +307,7 @@
             audio.style.width = '100%';
             audio.style.display = 'block';
             audio.src = src;
-            addElement(audio, 320, 54, pos);
+            addElement(audio, 320, 54, pos, 'audio');
         }
         
         function addPdf(src, pos) {
@@ -246,7 +316,7 @@
             frame.style.width = '100%';
             frame.style.height = '100%';
             frame.style.border = '0';
-            addElement(frame, 360, 480, pos);
+            addElement(frame, 360, 480, pos, 'pdf');
         }
         
         function addTextFile(file, pos) {
@@ -261,7 +331,7 @@
             pre.style.whiteSpace = 'pre-wrap';
             file.text().then(function(text) {
                 pre.textContent = text;
-                addElement(pre, 320, 240, pos);
+                addElement(pre, 320, 240, pos, 'text');
             });
         }
         
@@ -281,22 +351,29 @@
             box.textContent = 'Sample Text';
             box.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;' +
                 'justify-content:center;background:#e9ecef;color:black;font:16px Arial;text-align:center;';
-            addElement(box, 200, 150, null);
+            addElement(box, 200, 150, null, 'text');
         }
         
-        // ---- Dragging ----
+        // ---- Selection and dragging ----
+        
+        function selectElement(element) {
+            sceneContainer.querySelectorAll('.media-element').forEach(function(el) {
+                el.classList.remove('selected');
+                el.style.zIndex = '';
+            });
+            selectedElement = element;
+            element.classList.add('selected');
+            element.style.zIndex = '2';
+        }
         
         function makeDraggable(element) {
             let offsetX = 0, offsetY = 0;
             
             element.addEventListener('mousedown', function(e) {
-                // Remove selection from all elements, then select this one
-                document.querySelectorAll('.media-element').forEach(el => {
-                    el.classList.remove('selected');
-                });
+                // Corner handles resize. They must not also start a move.
+                if (e.target.closest && e.target.closest('.resize-handle')) return;
                 
-                selectedElement = element;
-                element.classList.add('selected');
+                selectElement(element);
                 
                 // Remember where inside the element the mouse grabbed it
                 const rect = element.getBoundingClientRect();
@@ -308,10 +385,10 @@
             });
             
             function dragElement(e) {
-                if (!selectedElement) return;
+                if (selectedElement !== element) return;
                 // Convert mouse position to canvas coordinates
                 const rect = sceneContainer.getBoundingClientRect();
-                moveElement(selectedElement,
+                moveElement(element,
                     e.clientX - offsetX - rect.left - sceneContainer.clientLeft,
                     e.clientY - offsetY - rect.top - sceneContainer.clientTop);
             }
@@ -320,6 +397,153 @@
                 document.removeEventListener('mousemove', dragElement);
                 document.removeEventListener('mouseup', stopDrag);
             }
+        }
+        
+        // ---- Corner resize ----
+        
+        function clampSize(value, min, max) {
+            if (max < min) return min;
+            return Math.min(Math.max(value, min), max);
+        }
+        
+        // Resize from the gesture's starting box. dx/dy are positive when the
+        // box grows. anchorRight/anchorBottom keep that edge fixed so the
+        // opposite corner stays put instead of translating the item.
+        // shift locks the starting aspect ratio.
+        function computeResize(o) {
+            var w = o.width + o.dx;
+            var h = o.height + o.dy;
+            var canLock = o.shift && o.width > 0 && o.height > 0;
+            var aspect = canLock ? o.width / o.height : 0;
+            if (canLock) {
+                if (Math.abs(o.dx) / o.width >= Math.abs(o.dy) / o.height) {
+                    h = w / aspect;
+                } else {
+                    w = h * aspect;
+                }
+            }
+            
+            var right = o.left + o.width + o.borderX;
+            var bottom = o.top + o.height + o.borderY;
+            var maxW = o.anchorRight ? right - o.borderX : o.sceneW - o.left - o.borderX;
+            var maxH = o.anchorBottom ? bottom - o.borderY : o.sceneH - o.top - o.borderY;
+            
+            w = clampSize(w, o.minW, maxW);
+            h = clampSize(h, o.minH, maxH);
+            
+            if (canLock) {
+                if (w / h > aspect) w = h * aspect;
+                else h = w / aspect;
+                if (w < o.minW) { w = o.minW; h = w / aspect; }
+                if (h < o.minH) { h = o.minH; w = h * aspect; }
+                if (w > maxW) { w = maxW; h = w / aspect; }
+                if (h > maxH) { h = maxH; w = h * aspect; }
+                // A min and a max can disagree in a tight corner. Prefer
+                // staying inside the canvas, then keep at least 1px.
+                w = clampSize(w, Math.min(o.minW, maxW), maxW);
+                h = clampSize(h, Math.min(o.minH, maxH), maxH);
+            }
+            
+            w = Math.round(w);
+            h = Math.round(h);
+            w = clampSize(w, Math.min(Math.round(o.minW), Math.floor(maxW)), Math.floor(maxW));
+            h = clampSize(h, Math.min(Math.round(o.minH), Math.floor(maxH)), Math.floor(maxH));
+            
+            var left = o.anchorRight ? right - w - o.borderX : o.left;
+            var top = o.anchorBottom ? bottom - h - o.borderY : o.top;
+            return {
+                left: Math.round(left),
+                top: Math.round(top),
+                width: w,
+                height: h
+            };
+        }
+        
+        function attachResizeHandles(element) {
+            RESIZE_CORNERS.forEach(function(spec) {
+                var handle = document.createElement('span');
+                handle.className = 'resize-handle ' + spec.corner;
+                handle.dataset.corner = spec.corner;
+                handle.setAttribute('aria-hidden', 'true');
+                // mousedown is a separate event from pointerdown. Stop it so
+                // the move gesture does not start along with the resize.
+                handle.addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+                handle.addEventListener('pointerdown', function(e) {
+                    if (e.button !== 0) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+                    startResize(element, spec, e);
+                });
+                element.appendChild(handle);
+            });
+        }
+        
+        function startResize(element, spec, e) {
+            selectElement(element);
+            var nominal = MIN_SIZE[element.dataset.kind] || { w: 48, h: 48 };
+            var originX = e.clientX;
+            var originY = e.clientY;
+            var state = {
+                left: element.offsetLeft,
+                top: element.offsetTop,
+                width: element.clientWidth,
+                height: element.clientHeight,
+                borderX: element.offsetWidth - element.clientWidth,
+                borderY: element.offsetHeight - element.clientHeight,
+                minW: Math.min(element.clientWidth, nominal.w),
+                minH: Math.min(element.clientHeight, nominal.h),
+                anchorRight: spec.anchorRight,
+                anchorBottom: spec.anchorBottom,
+                sceneW: sceneContainer.clientWidth,
+                sceneH: sceneContainer.clientHeight
+            };
+            element.classList.add('resizing');
+            document.documentElement.classList.add('resize-gesture');
+            document.documentElement.style.setProperty('--resize-cursor', spec.cursor);
+            
+            function onMove(ev) {
+                if (!element.isConnected) { onUp(); return; }
+                var rawX = ev.clientX - originX;
+                var rawY = ev.clientY - originY;
+                var box = computeResize({
+                    left: state.left,
+                    top: state.top,
+                    width: state.width,
+                    height: state.height,
+                    borderX: state.borderX,
+                    borderY: state.borderY,
+                    minW: state.minW,
+                    minH: state.minH,
+                    dx: spec.anchorRight ? -rawX : rawX,
+                    dy: spec.anchorBottom ? -rawY : rawY,
+                    shift: ev.shiftKey,
+                    anchorRight: state.anchorRight,
+                    anchorBottom: state.anchorBottom,
+                    sceneW: state.sceneW,
+                    sceneH: state.sceneH
+                });
+                element.style.width = box.width + 'px';
+                element.style.height = box.height + 'px';
+                element.style.left = box.left + 'px';
+                element.style.top = box.top + 'px';
+            }
+            
+            function onUp() {
+                element.classList.remove('resizing');
+                document.documentElement.classList.remove('resize-gesture');
+                document.documentElement.style.removeProperty('--resize-cursor');
+                document.removeEventListener('pointermove', onMove);
+                document.removeEventListener('pointerup', onUp);
+                document.removeEventListener('pointercancel', onUp);
+            }
+            
+            document.addEventListener('pointermove', onMove);
+            document.addEventListener('pointerup', onUp);
+            document.addEventListener('pointercancel', onUp);
         }
         
         // ---- Auto arrange ----

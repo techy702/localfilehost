@@ -144,7 +144,7 @@ The macOS app and the iOS app are optional wrappers around the same file. `dist/
 
 ## iOS app
 
-`ios/LocalFileHost.xcodeproj` is an iPhone and iPad app. It copies the repository `index.html` into the bundle and shows it in a `WKWebView` that fills the screen, including under the notch. The page pads for the safe area. On a narrow screen the canvas is scaled down to the width without changing the layout coordinates, so drag and resize stay aligned. Touch drags use pointer events. Source rows have 44-point targets, and **Up** / **Down** reorder without a mouse.
+`ios/LocalFileHost.xcodeproj` is an iPhone and iPad app. It copies the repository `index.html` into the bundle and shows it in a `WKWebView` that fills the screen, including under the notch. The page pads for the safe area. On a narrow screen the canvas is scaled down to the width without changing the layout coordinates, so drag and resize stay aligned, and Sources moves below the canvas instead of sitting off the right edge. Touch drags use pointer events. Corner handles are larger for a finger. Source rows have 44-point targets, and **Up** / **Down** reorder without a mouse. Name and text fields use a 16px font so iOS does not zoom the page when they are focused.
 
 **Fullscreen** uses the same scaled canvas. iPhone often will not expand an arbitrary web page with the system fullscreen API, so the app hides the status bar and home indicator while that mode is on and the page scales inside the view. Video and images are still the original elements.
 

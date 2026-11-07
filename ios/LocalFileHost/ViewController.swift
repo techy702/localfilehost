@@ -40,6 +40,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         controller.add(self, name: "localFileHost")
 
         let webView = WKWebView(frame: view.bounds, configuration: config)
+        webView.allowsBackForwardNavigationGestures = false
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.translatesAutoresizingMaskIntoConstraints = false

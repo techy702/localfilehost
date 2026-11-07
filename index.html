@@ -9,6 +9,10 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; media-src blob: data:; font-src 'none'; connect-src 'none'; object-src 'none'; frame-src blob: about:; worker-src 'none'; form-action 'none'; base-uri 'none'">
     <title>Enhanced Local Media Host</title>
     <style>
+        html, body {
+            overscroll-behavior: none;
+        }
+        
         body {
             margin: 0;
             padding: 20px;
@@ -21,8 +25,10 @@
         
         .workspace {
             display: flex;
+            flex-wrap: wrap;
             align-items: flex-start;
             gap: 16px;
+            max-width: 100%;
         }
         
         .scene-slot {
@@ -146,6 +152,17 @@
         .resize-handle.sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
         .resize-handle.se { right: -7px; bottom: -7px; cursor: nwse-resize; }
         
+        @media (pointer: coarse) {
+            .resize-handle {
+                width: 36px;
+                height: 36px;
+            }
+            .resize-handle.nw { left: -18px; top: -18px; }
+            .resize-handle.ne { right: -18px; top: -18px; }
+            .resize-handle.sw { left: -18px; bottom: -18px; }
+            .resize-handle.se { right: -18px; bottom: -18px; }
+        }
+        
         .media-element.resizing .media-content {
             pointer-events: none;
         }
@@ -162,6 +179,9 @@
         
         .layers {
             width: 230px;
+            max-width: 100%;
+            flex: 0 1 230px;
+            box-sizing: border-box;
             font-size: 14px;
         }
         
@@ -187,6 +207,7 @@
         
         .source-row {
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 4px;
             margin: 4px 0;
@@ -202,17 +223,23 @@
             outline: 2px solid #007bff;
         }
         
-        .source-row button {
+        #layerList .source-row button {
             width: auto;
             display: inline-block;
+            min-width: 44px;
+            min-height: 44px;
             margin: 0;
-            padding: 4px 6px;
+            padding: 4px 8px;
+            text-align: center;
         }
         
         .source-name {
-            flex: 1;
+            flex: 1 1 8em;
             min-width: 0;
+            min-height: 44px;
             width: 100%;
+            box-sizing: border-box;
+            font-size: 16px;
         }
         
         #exitFullscreenButton {
@@ -247,8 +274,8 @@
         body.presenting #exitFullscreenButton {
             display: block;
             position: fixed;
-            top: 12px;
-            right: 12px;
+            top: max(12px, env(safe-area-inset-top));
+            right: max(12px, env(safe-area-inset-right));
             z-index: 30;
         }
         
@@ -271,7 +298,8 @@
             width: 100%;
             box-sizing: border-box;
             margin-top: 4px;
-            font: 14px Arial, sans-serif;
+            min-height: 44px;
+            font: 16px Arial, sans-serif;
         }
     </style>
 </head>

@@ -898,6 +898,48 @@ class ResizeBrowserTests(unittest.TestCase):
         self.page.keyboard.press("Escape")
         self.assertEqual(self.http_requests, [])
 
+    def test_narrow_screen_stacks_sources_inside_the_viewport(self):
+        self.page.evaluate("addText()")
+        wide = self.page.evaluate(
+            """() => {
+                const scene = document.getElementById('sceneSlot').getBoundingClientRect();
+                const layers = document.getElementById('layerPanel').getBoundingClientRect();
+                return {
+                    layersLeft: layers.left,
+                    sceneRight: scene.right,
+                    layersRight: layers.right,
+                    inner: window.innerWidth
+                };
+            }"""
+        )
+        self.assertGreater(wide["layersLeft"], wide["sceneRight"] - 1)
+        self.assertLessEqual(wide["layersRight"], wide["inner"] + 1)
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.wait_for_timeout(50)
+        narrow = self.page.evaluate(
+            """() => {
+                const scene = document.getElementById('sceneSlot').getBoundingClientRect();
+                const layers = document.getElementById('layerPanel').getBoundingClientRect();
+                const button = document.querySelector('#layerList button');
+                const name = document.querySelector('.source-name');
+                return {
+                    layersTop: layers.top,
+                    sceneBottom: scene.bottom,
+                    layersRight: layers.right,
+                    sceneRight: scene.right,
+                    inner: window.innerWidth,
+                    buttonH: button.getBoundingClientRect().height,
+                    nameSize: parseFloat(getComputedStyle(name).fontSize)
+                };
+            }"""
+        )
+        self.assertGreaterEqual(narrow["layersTop"], narrow["sceneBottom"] - 1)
+        self.assertLessEqual(narrow["layersRight"], narrow["inner"] + 1)
+        self.assertLessEqual(narrow["sceneRight"], narrow["inner"] + 1)
+        self.assertGreaterEqual(narrow["buttonH"], 44)
+        self.assertGreaterEqual(narrow["nameSize"], 16)
+        self.assertEqual(self.http_requests, [])
+
     def test_touch_drag_moves_an_item(self):
         self.page.evaluate("addText()")
         before = self.metrics()

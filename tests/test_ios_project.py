@@ -61,6 +61,7 @@ class IOSProjectTests(unittest.TestCase):
         self.assertIn("completionHandler(nil)", source)
         self.assertIn("^https?://", source)
         self.assertIn("loadFileURL", source)
+        self.assertIn("allowsBackForwardNavigationGestures = false", source)
         self.assertNotIn("print(", source)
         self.assertNotIn("NSLog", source)
         self.assertNotIn("os_log", source)
@@ -68,6 +69,7 @@ class IOSProjectTests(unittest.TestCase):
         self.assertIn("safe-area-inset-top", page)
         self.assertIn("viewport-fit=cover", page)
         self.assertIn("touch-action: none", page)
+        self.assertIn("overscroll-behavior: none", page)
         self.assertIn("messageHandlers", page)
 
     def test_workflow_builds_ios_without_a_release(self):

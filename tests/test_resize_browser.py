@@ -314,24 +314,14 @@ class ResizeBrowserTests(unittest.TestCase):
         self.assertClose(shrunk["top"], before["top"])
 
         self.page.evaluate("clearScene(); addText()")
-        limits = self.page.evaluate(
-            """() => {
-                const el = document.querySelector('.media-element');
-                const scene = document.getElementById('sceneContainer');
-                return {
-                    left: parseFloat(el.style.left),
-                    top: parseFloat(el.style.top),
-                    maxW: scene.clientWidth - el.offsetLeft - (el.offsetWidth - el.clientWidth),
-                    maxH: scene.clientHeight - el.offsetTop - (el.offsetHeight - el.clientHeight)
-                };
-            }"""
-        )
-        self.drag(".resize-handle.se", 2000, 2000)
+        before_grow = self.metrics()
+        self.drag(".resize-handle.se", 750, 200)
         grown = self.metrics()
-        self.assertEqual(grown["width"], limits["maxW"])
-        self.assertEqual(grown["height"], limits["maxH"])
-        self.assertClose(grown["left"], limits["left"])
-        self.assertClose(grown["top"], limits["top"])
+        self.assertClose(grown["width"], before_grow["width"] + 750)
+        self.assertClose(grown["height"], before_grow["height"] + 200)
+        self.assertGreater(grown["left"] + grown["width"], 800)
+        self.assertClose(grown["left"], before_grow["left"])
+        self.assertClose(grown["top"], before_grow["top"])
 
         self.page.evaluate(
             """() => {
@@ -366,8 +356,10 @@ class ResizeBrowserTests(unittest.TestCase):
                 };
             }"""
         )
-        self.assertEqual(nw["left"], 0)
-        self.assertEqual(nw["top"], 0)
+        self.assertLess(nw["left"], 0)
+        self.assertLess(nw["top"], 0)
+        self.assertClose(nw["width"], 400)
+        self.assertClose(nw["height"], 350)
         self.assertEqual(border["right"], anchored["right"])
         self.assertEqual(border["bottom"], anchored["bottom"])
 
@@ -562,6 +554,133 @@ class ResizeBrowserTests(unittest.TestCase):
             self.page.evaluate("() => document.querySelector('img').naturalWidth"),
             120,
         )
+        self.assertEqual(self.http_requests, [])
+
+    def test_off_canvas_layers_opacity_and_order(self):
+        self.assertEqual(
+            self.page.evaluate(
+                "() => getComputedStyle(document.getElementById('sceneContainer')).overflow"
+            ),
+            "hidden",
+        )
+        self.page.evaluate("addText(); addText()")
+        rows = self.page.locator("#layerList button")
+        self.assertEqual(rows.count(), 2)
+        self.assertNotIn("http", rows.nth(0).inner_text())
+        front = self.page.evaluate(
+            """() => {
+                const items = Array.from(document.querySelectorAll('.media-element'));
+                return items.map(el => ({id: el.dataset.layerId, z: Number(el.style.zIndex)}));
+            }"""
+        )
+        self.assertGreater(front[1]["z"], front[0]["z"])
+        self.page.locator("#layerList button").first.click()
+        self.page.locator("#layerBackward").click()
+        swapped = self.page.evaluate(
+            """() => Array.from(document.querySelectorAll('.media-element')).map(el => Number(el.style.zIndex))"""
+        )
+        self.assertGreater(swapped[0], swapped[1])
+
+        self.page.locator(".media-element").first.click()
+        self.page.evaluate(
+            """() => {
+                const input = document.getElementById('opacityInput');
+                input.value = '35';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            }"""
+        )
+        self.assertEqual(
+            self.page.evaluate("() => document.querySelector('.media-element.selected').style.opacity"),
+            "0.35",
+        )
+
+        box = self.page.locator(".media-element.selected").bounding_box()
+        x = box["x"] + 30
+        y = box["y"] + 30
+        self.page.mouse.move(x, y)
+        self.page.mouse.down()
+        self.page.mouse.move(x - 500, y - 200, steps=8)
+        self.page.mouse.up()
+        hung = self.metrics()
+        self.assertLess(hung["left"], 0)
+        self.assertLess(hung["top"], 0)
+        self.assertEqual(self.page.locator("#layerList button").count(), 2)
+        self.page.evaluate(
+            """() => {
+                const el = document.querySelector('.media-element.selected');
+                el.style.left = '-900px';
+                el.style.top = '-700px';
+            }"""
+        )
+        self.page.locator("#layerList button.selected").click()
+        self.page.locator("#layerShow").click()
+        overlap = self.page.evaluate(
+            """() => {
+                const el = document.querySelector('.media-element.selected');
+                const scene = document.getElementById('sceneContainer');
+                return {
+                    x: Math.min(el.offsetLeft + el.offsetWidth, scene.clientWidth) - Math.max(el.offsetLeft, 0),
+                    y: Math.min(el.offsetTop + el.offsetHeight, scene.clientHeight) - Math.max(el.offsetTop, 0)
+                };
+            }"""
+        )
+        self.assertGreaterEqual(overlap["x"], 48)
+        self.assertGreaterEqual(overlap["y"], 48)
+
+    def test_drag_keeps_playback_and_transport_toggles_apply_to_new_media(self):
+        self.page.locator("#muteAllButton").click()
+        self.page.locator("#loopAllButton").click()
+        self.assertEqual(self.page.locator("#muteAllButton").get_attribute("aria-pressed"), "true")
+        self.assertEqual(self.page.locator("#loopAllButton").inner_text(), "Loop All: On")
+        self.page.locator("#fileInput").set_input_files(str(self.mp4))
+        self.page.wait_for_selector("video")
+        self.assertTrue(self.page.evaluate("() => { const v = document.querySelector('video'); return v.muted && v.loop; }"))
+        self.page.locator("#muteAllButton").click()
+        self.assertFalse(self.page.evaluate("() => document.querySelector('video').muted"))
+        self.page.evaluate(
+            """() => {
+                const el = document.querySelector('.media-element');
+                el.style.width = '480px';
+                el.style.height = '270px';
+                document.querySelector('video').play();
+            }"""
+        )
+        self.wait_until("document.querySelector('video').currentTime > 0")
+        started = self.page.evaluate("() => document.querySelector('video').currentTime")
+        box = self.page.locator("video").bounding_box()
+        x = box["x"] + box["width"] / 2
+        y = box["y"] + 40
+        self.page.mouse.move(x, y)
+        self.page.mouse.down()
+        self.page.mouse.move(x + 90, y + 20, steps=8)
+        self.page.mouse.up()
+        self.page.wait_for_timeout(50)
+        after_drag = self.page.evaluate(
+            """() => {
+                const v = document.querySelector('video');
+                return { paused: v.paused, time: v.currentTime };
+            }"""
+        )
+        self.assertFalse(after_drag["paused"])
+        self.assertGreater(after_drag["time"], started)
+        self.page.locator("video").hover()
+        box = self.page.locator("video").bounding_box()
+        self.page.mouse.click(box["x"] + 18, box["y"] + box["height"] - 28)
+        self.page.wait_for_timeout(150)
+        self.assertTrue(self.page.evaluate("() => document.querySelector('video').paused"))
+
+        self.page.locator("#fileInput").set_input_files(str(self.wav))
+        self.page.wait_for_selector("audio")
+        transport = self.page.evaluate(
+            """() => {
+                const audio = document.querySelector('audio');
+                const video = document.querySelector('video');
+                return { audioLoop: audio.loop, audioMuted: audio.muted, videoLoop: video.loop };
+            }"""
+        )
+        self.assertTrue(transport["audioLoop"])
+        self.assertTrue(transport["videoLoop"])
+        self.assertFalse(transport["audioMuted"])
         self.assertEqual(self.http_requests, [])
 
 

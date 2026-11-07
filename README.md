@@ -10,6 +10,11 @@ A single-page, browser-based tool for arranging media elements on a canvas, in t
 - Files dropped on the canvas land where you drop them
 - Images and video are sized to their natural dimensions, scaled down to fit the canvas if larger
 - **Add Video** and **Add Image** open the file picker for a local file. **Add Text** places a text box. None of these contact a server
+- Drag an item partly or fully off the canvas, and resize it larger than the canvas, so a widescreen picture can line up with a frame that sits on top. The canvas clips drawing. The Layers list still selects an item that is outside, and **Bring into view** pulls a grabbable edge back on screen
+- Layers: **Front**, **Forward**, **Backward**, and **Back** change which item is painted above another, so a video can sit behind a border image
+- The opacity slider changes the selected item
+- **Mute All** and **Loop All** apply to every video and audio element, including ones added afterward. The button label shows On or Off. **Clear Scene** does not turn them off
+- Dragging a video and releasing the mouse leaves playback running. A later click on the video's own controls still pauses or plays it
 - Reposition elements on the canvas by dragging them
 - Drag the blue corner handles to resize an item. The opposite corner stays where it is, so the resize does not pick the item up and move it
 - Hold Shift while resizing to keep the item's aspect ratio. Without Shift, width and height change independently. Images and video use `object-fit: contain`, so the media stays fully visible inside the new box
@@ -97,6 +102,16 @@ You can also double-click `dist/LocalFileHost.app` in Finder. The app quits when
 
 - Ubuntu runs the packaging tests and the browser resize tests
 - `macos-15` (Apple Silicon) runs `./scripts/build-macos-app.sh` and uploads the artifact `LocalFileHost-macos-arm64-unsigned`
+
+The uploaded file is `LocalFileHost-macos-arm64-unsigned.zip`. GitHub wraps that file in a second zip when you download the artifact. The inner zip's top folder is `LocalFileHost.app`, not a bare `Contents` directory. The build checks that layout before upload.
+
+Extract it this way:
+
+1. Unzip GitHub's download. You get `LocalFileHost-macos-arm64-unsigned.zip`.
+2. Unzip that inner archive. On a Mac, double-click it or run `ditto -x -k LocalFileHost-macos-arm64-unsigned.zip .`
+3. Open `LocalFileHost.app`.
+
+An older artifact unpacked straight to `Contents` (with `MacOS`, `Resources`, and `Info.plist`) in Downloads. That folder is not the app. Use a build from this packaging fix.
 
 The workflow does not create a GitHub Release. `macos-14` runners were retired on 2 November 2026, so the Apple Silicon label is `macos-15`.
 

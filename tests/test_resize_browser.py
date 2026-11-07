@@ -152,6 +152,12 @@ class ResizeBrowserTests(unittest.TestCase):
 
     def drag(self, selector, dx, dy, shift=False):
         handle = self.page.locator(selector)
+        handle.evaluate(
+            """el => {
+                const item = el.closest('.media-element');
+                if (item) selectElement(item);
+            }"""
+        )
         handle.scroll_into_view_if_needed()
         box = handle.bounding_box()
         self.assertIsNotNone(box)
@@ -184,8 +190,13 @@ class ResizeBrowserTests(unittest.TestCase):
 
     def test_corner_handles_are_visible_on_the_corners(self):
         self.page.evaluate("addText()")
-        item = self.page.locator(".media-element").bounding_box()
         self.assertEqual(self.metrics()["handles"], 4)
+        self.assertEqual(
+            self.page.evaluate("() => getComputedStyle(document.querySelector('.resize-handle')).display"),
+            "none",
+        )
+        self.page.evaluate("() => selectElement(document.querySelector('.media-element'))")
+        item = self.page.locator(".media-element").bounding_box()
         style = self.page.evaluate(
             """() => {
                 const handle = document.querySelector('.resize-handle.se');
@@ -265,8 +276,11 @@ class ResizeBrowserTests(unittest.TestCase):
         self.page.evaluate("addText()")
         self.drag(".resize-handle.se", 60, 40)
         resized = self.metrics()
-        handle = self.page.locator(".resize-handle.se").bounding_box()
-        self.page.mouse.move(handle["x"] + 120, handle["y"] + 90, steps=4)
+        self.assertEqual(
+            self.page.evaluate("() => getComputedStyle(document.querySelector('.resize-handle.se')).display"),
+            "none",
+        )
+        self.page.mouse.move(240, 240, steps=4)
         self.assertEqual(self.metrics(), resized)
 
     def test_body_drag_moves_and_does_not_resize(self):
@@ -814,6 +828,74 @@ class ResizeBrowserTests(unittest.TestCase):
         self.assertEqual(restored["opacity"], before["opacity"])
         self.assertEqual(restored["z"], before["z"])
         self.assertNotEqual(restored["layers"], "none")
+        self.assertEqual(self.http_requests, [])
+
+    def test_text_edit_is_plain_multiline_and_handles_hide_when_finished(self):
+        self.page.evaluate("addText()")
+        self.page.locator(".media-element").dblclick()
+        self.assertEqual(self.page.evaluate("() => document.activeElement.id"), "textEdit")
+        markup = "Line one\n<b>not bold</b>\n<script>no</script>"
+        self.page.locator("#textEdit").fill(markup)
+        rendered = self.page.evaluate(
+            """() => {
+                const body = document.querySelector('.text-body');
+                return {
+                    text: body.textContent,
+                    htmlTags: body.querySelectorAll('*').length,
+                    stored: localStorage.length
+                };
+            }"""
+        )
+        self.assertEqual(rendered["text"], markup)
+        self.assertEqual(rendered["htmlTags"], 0)
+        self.assertEqual(rendered["stored"], 0)
+        box = self.page.locator(".media-element").bounding_box()
+        self.page.mouse.move(box["x"] + 30, box["y"] + 40)
+        self.page.mouse.down()
+        self.page.mouse.move(box["x"] + 90, box["y"] + 70, steps=5)
+        self.page.mouse.up()
+        self.assertEqual(
+            self.page.evaluate("() => document.querySelector('.text-body').textContent"),
+            markup,
+        )
+        self.page.evaluate("() => selectElement(document.querySelector('.media-element'))")
+        self.assertEqual(
+            self.page.evaluate("() => getComputedStyle(document.querySelector('.resize-handle')).display"),
+            "block",
+        )
+        self.drag(".resize-handle.se", 40, 20)
+        self.assertEqual(
+            self.page.evaluate("() => getComputedStyle(document.querySelector('.resize-handle')).display"),
+            "none",
+        )
+        self.page.locator(".media-element").click()
+        self.assertEqual(
+            self.page.evaluate("() => getComputedStyle(document.querySelector('.resize-handle')).display"),
+            "block",
+        )
+        scene = self.page.locator("#sceneContainer").bounding_box()
+        self.page.mouse.click(scene["x"] + scene["width"] - 10, scene["y"] + scene["height"] - 10)
+        self.assertIsNone(self.page.evaluate("() => document.querySelector('.media-element.selected')"))
+        self.assertEqual(
+            self.page.evaluate("() => getComputedStyle(document.querySelector('.resize-handle')).display"),
+            "none",
+        )
+        self.page.locator(".media-element").click()
+        self.page.keyboard.press("Escape")
+        self.assertIsNone(self.page.evaluate("() => document.querySelector('.media-element.selected')"))
+        self.page.locator(".source-lock").click()
+        self.page.evaluate("() => selectElement(document.querySelector('.media-element'))")
+        self.assertEqual(
+            self.page.evaluate("() => getComputedStyle(document.querySelector('.resize-handle')).display"),
+            "none",
+        )
+        self.page.locator("#fullscreenButton").click()
+        self.page.wait_for_timeout(50)
+        self.assertEqual(
+            self.page.evaluate("() => getComputedStyle(document.querySelector('.resize-handle')).display"),
+            "none",
+        )
+        self.page.keyboard.press("Escape")
         self.assertEqual(self.http_requests, [])
 
 

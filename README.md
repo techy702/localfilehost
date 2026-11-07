@@ -17,6 +17,8 @@ A single-page, browser-based tool for arranging media elements on a canvas, in t
 - Dragging a video and releasing the mouse leaves playback running. A later click on the video's own controls still pauses or plays it
 - **Sources** lists the topmost item first. Drag a row, or use **Up** and **Down**, to restack it. **Hide** keeps the row selectable. **Lock** stops accidental moves and resizes until **Unlock**. The name field is only kept in this window
 - **Fullscreen** hides the editor and scales the whole canvas to the screen without stretching it. Video and images stay the original files. Making the canvas larger does not add detail the file does not have. **Exit fullscreen** or Escape returns to the editor and leaves playback as it was
+- Click a selected text source, or double-click it, and edit the words in the **Text** box under Sources. Line breaks are kept. The text is shown as typed, including any characters that look like HTML. The name is not saved and is not sent anywhere
+- Corner handles appear on the selected item while you adjust it, then hide when you release. Click the item again, or move the pointer back onto it, to resize again. Click empty canvas or press Escape to deselect. Locked items, hidden items, and fullscreen do not show handles
 - Reposition elements on the canvas by dragging them
 - Drag the blue corner handles to resize an item. The opposite corner stays where it is, so the resize does not pick the item up and move it
 - Hold Shift while resizing to keep the item's aspect ratio. Without Shift, width and height change independently. Images and video use `object-fit: contain`, so the media stays fully visible inside the new box

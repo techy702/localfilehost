@@ -90,7 +90,7 @@ fi
 # Launch the simulator build long enough to see that the process stays up.
 # This does not tap the screen or open the document picker.
 python3 - "$SIM_APP" "$BUNDLE_ID" "$DIST/ios-simulator-launch.png" <<'PY'
-import json, subprocess, sys, time
+import json, subprocess, sys
 app, bundle, shot = sys.argv[1], sys.argv[2], sys.argv[3]
 raw = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True)
 devices = json.loads(raw)["devices"]
@@ -110,14 +110,25 @@ udid = chosen["udid"]
 subprocess.run(["xcrun", "simctl", "boot", udid], check=False)
 subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True)
 subprocess.run(["xcrun", "simctl", "install", udid, app], check=True)
-launched = subprocess.check_output(["xcrun", "simctl", "launch", udid, bundle], text=True).strip()
-pid = launched.split(":")[-1].strip()
-time.sleep(3)
-probe = subprocess.run(["xcrun", "simctl", "spawn", udid, "kill", "-0", pid])
-if probe.returncode != 0:
-    sys.exit(f"Simulator process {pid} exited early")
+# `simctl launch --console` stays attached while the app runs. A timeout means
+# the process was still alive. An early return means it quit or crashed.
+proc = subprocess.Popen(
+    ["xcrun", "simctl", "launch", "--console", "--terminate-running-process", udid, bundle],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+)
+try:
+    output, _ = proc.communicate(timeout=8)
+except subprocess.TimeoutExpired:
+    proc.kill()
+    output, _ = proc.communicate()
+    print(output)
+    print(f"Simulator {chosen['name']} kept LocalFileHost running")
+else:
+    print(output)
+    sys.exit("LocalFileHost exited during launch")
 subprocess.run(["xcrun", "simctl", "io", udid, "screenshot", shot], check=True)
-print(f"Simulator {chosen['name']} kept LocalFileHost running (pid {pid})")
 PY
 
 zip_app() {

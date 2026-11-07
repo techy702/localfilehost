@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Packaging tests
-        run: python3 -m unittest tests.test_macos_packaging
+        run: python3 -m unittest tests.test_macos_packaging tests.test_ios_project
 
   browser:
     name: Browser resize checks
@@ -49,4 +49,26 @@ jobs:
         with:
           name: LocalFileHost-macos-arm64-unsigned
           path: dist/LocalFileHost-macos-arm64-unsigned.zip
+          if-no-files-found: error
+
+  ios:
+    name: iOS simulator and unsigned device
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build iOS simulator and unsigned device bundles
+        run: ./scripts/build-ios.sh
+      - name: Upload iOS simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalFileHost-ios-simulator
+          path: |
+            dist/LocalFileHost-ios-simulator.zip
+            dist/ios-simulator-launch.png
+          if-no-files-found: error
+      - name: Upload unsigned iOS device app
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalFileHost-ios-unsigned-device
+          path: dist/LocalFileHost-ios-unsigned-device.zip
           if-no-files-found: error

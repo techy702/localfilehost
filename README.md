@@ -140,7 +140,44 @@ Compiling the Swift window, ad-hoc signing, confirming the Mach-O is arm64, and 
 
 The browser app is one `index.html` file. It has no build step and no dependencies. GitHub Pages serves that file from the repository root.
 
-The macOS app is an optional wrapper around the same file. `dist/` is gitignored.
+The macOS app and the iOS app are optional wrappers around the same file. `dist/` is gitignored.
+
+## iOS app
+
+`ios/LocalFileHost.xcodeproj` is an iPhone and iPad app. It copies the repository `index.html` into the bundle and shows it in a `WKWebView` that fills the screen, including under the notch. The page pads for the safe area. On a narrow screen the canvas is scaled down to the width without changing the layout coordinates, so drag and resize stay aligned. Touch drags use pointer events. Source rows have 44-point targets, and **Up** / **Down** reorder without a mouse.
+
+**Fullscreen** uses the same scaled canvas. iPhone often will not expand an arbitrary web page with the system fullscreen API, so the app hides the status bar and home indicator while that mode is on and the page scales inside the view. Video and images are still the original elements.
+
+Choosing files uses the system document picker. On iOS 18.4 and later the app presents that picker itself and passes cancel back with no file. Older iOS versions present the picker for the file field. The app does not ask for camera, photo library, microphone, or location access. Picked files are read in the page and are not logged.
+
+There is no analytics and no crash reporter of this app's own. iOS may still write a diagnostic report if the process crashes, under the device's own settings. A crash report can contain process memory.
+
+### Build
+
+On a Mac with Xcode:
+
+```bash
+./scripts/build-ios.sh
+```
+
+The script refuses to run on Linux. It builds two unsigned bundles and zips each so `LocalFileHost.app` is the top folder:
+
+- `dist/LocalFileHost-ios-simulator.zip` runs in the iOS Simulator
+- `dist/LocalFileHost-ios-unsigned-device.zip` is an iPhone/iPad binary with no signature
+
+The device zip cannot be installed on a physical iPhone or iPad. iOS rejects unsigned apps. Installing on Matthew's own device needs his Apple team in Xcode (a free personal team can install to a device he registers) or a TestFlight setup he authorizes. This repository does not sign, enroll, or upload to App Store Connect.
+
+GitHub Actions on `macos-15` runs the same script. It boots an iPhone simulator, installs the simulator app, and checks that the process is still running after a few seconds. It also takes a launch screenshot. That does not tap the screen or open the document picker.
+
+### Install on a personal iPhone or iPad
+
+1. Download `LocalFileHost-ios-simulator` only if you want the Simulator build. For a device, open this project in Xcode instead of installing the unsigned zip.
+2. Open `ios/LocalFileHost.xcodeproj` on the Mac.
+3. Select the LocalFileHost target, Signing & Capabilities, and choose the personal team.
+4. Connect the iPhone or iPad, choose it as the run destination, and press Run.
+5. If iOS blocks the developer, trust the developer certificate in Settings on the device.
+
+Unzipping `LocalFileHost-ios-unsigned-device.zip` and tapping the app will not install it.
 
 ### Tests
 

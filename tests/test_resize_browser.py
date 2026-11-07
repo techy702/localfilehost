@@ -898,6 +898,22 @@ class ResizeBrowserTests(unittest.TestCase):
         self.page.keyboard.press("Escape")
         self.assertEqual(self.http_requests, [])
 
+    def test_touch_drag_moves_an_item(self):
+        self.page.evaluate("addText()")
+        before = self.metrics()
+        box = self.page.locator(".media-element").bounding_box()
+        x = box["x"] + 50
+        y = box["y"] + 50
+        cdp = self.page.context.new_cdp_session(self.page)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": x + 70, "y": y + 24}]})
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        after = self.metrics()
+        self.assertClose(after["left"], before["left"] + 70, delta=8)
+        self.assertClose(after["top"], before["top"] + 24, delta=8)
+        self.assertClose(after["width"], before["width"])
+        self.assertEqual(self.http_requests, [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,7 +6,7 @@ Thumbs.db
 *.tmp
 *.temp
 
-# Local macOS build output. The runnable app is produced on a Mac.
+# Local macOS and iOS build output.
 dist/
 
 # Test caches

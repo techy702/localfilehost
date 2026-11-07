@@ -37,8 +37,9 @@ class PackagingTests(unittest.TestCase):
             "URL.createObjectURL",
             "function arrangeGrid()",
             "function clearScene()",
-            "https://sample-videos.com/video123/mp4/768x432_1mb.mp4",
-            "https://placehold.co/200x150",
+            "chooseFiles('video/*')",
+            "chooseFiles('image/*')",
+            "connect-src 'none'",
             "resize-handle",
             "function computeResize(",
             "Hold Shift to keep the aspect ratio",
@@ -50,6 +51,15 @@ class PackagingTests(unittest.TestCase):
             self.assertIn(snippet, text)
         self.assertNotIn("<script src=", text)
         self.assertNotIn("<link rel=", text)
+        self.assertNotIn("http://", text)
+        self.assertNotIn("https://", text)
+        self.assertNotIn("sample-videos.com", text)
+        self.assertNotIn("placehold.co", text)
+        self.assertNotIn("localStorage", text)
+        self.assertNotIn("indexedDB", text)
+        self.assertNotIn("console.log", text)
+        self.assertIn("isLocalResource", text)
+        self.assertIn("navigator.sendBeacon", text)
 
     def test_plist_describes_an_unsigned_arm64_window_app(self):
         plist = plistlib.loads(PLIST.read_bytes())
@@ -71,7 +81,17 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("WKWebView", source)
         self.assertIn("app.run()", source)
         self.assertIn("dropEffect", source)
+        self.assertIn("WKWebsiteDataStore.nonPersistent()", source)
+        self.assertIn("^https?://", source)
+        self.assertIn("^wss?://", source)
+        self.assertIn("isRestorable = false", source)
         self.assertNotIn("stopPropagation", source)
+        self.assertNotIn("print(", source)
+        self.assertNotIn("NSLog", source)
+        self.assertNotIn("os_log", source)
+        self.assertNotIn("MetricKit", source)
+        self.assertNotIn("sample-videos.com", source)
+        self.assertNotIn("placehold.co", source)
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("arm64-apple-macosx12.0", script)
         self.assertIn("codesign --force --sign -", script)

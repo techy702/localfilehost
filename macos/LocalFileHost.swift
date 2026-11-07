@@ -7,7 +7,7 @@
 import AppKit
 import WebKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
     private var window: NSWindow!
     private var webView: WKWebView!
     private var indexURL: URL?
@@ -37,6 +37,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     })();
     """
 
+    // Blocks network schemes inside the window. file:, blob:, and data: stay
+    // available, so the bundled page and local media still load. This does not
+    // affect opening the page from GitHub in a browser.
+    private static let offlineContentRules = """
+    [
+      {"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}},
+      {"trigger":{"url-filter":"^wss?://"},"action":{"type":"block"}},
+      {"trigger":{"url-filter":"^ftp://"},"action":{"type":"block"}}
+    ]
+    """
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         installMenus()
@@ -55,6 +66,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         indexURL = pageURL
 
         let config = WKWebViewConfiguration()
+        // Memory-only website data. The window does not keep a cookie jar or
+        // HTTP cache on disk, and it does not record the files you open.
+        config.websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        config.preferences.javaScriptCanOpenWindowsAutomatically = false
         let script = WKUserScript(
             source: AppDelegate.fileDropGuard,
             injectionTime: .atDocumentStart,
@@ -62,8 +77,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         )
         config.userContentController.addUserScript(script)
 
+        WKContentRuleListStore.default().compileContentRuleList(
+            forIdentifier: "localfilehost-offline",
+            encodedContentRuleList: AppDelegate.offlineContentRules
+        ) { list, _ in
+            DispatchQueue.main.async {
+                if let list = list {
+                    config.userContentController.add(list)
+                }
+                self.openWindow(config: config, pageURL: pageURL, resourceURL: resourceURL)
+            }
+        }
+    }
+
+    private func openWindow(config: WKWebViewConfiguration, pageURL: URL, resourceURL: URL) {
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
+        webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = false
         webView.autoresizingMask = [.width, .height]
         self.webView = webView
@@ -76,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         )
         window.title = "Local Media Host"
         window.minSize = NSSize(width: 860, height: 780)
+        window.isRestorable = false
         window.contentView = webView
         window.center()
         self.window = window
@@ -88,6 +119,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         } else {
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        nil
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        let scheme = navigationResponse.response.url?.scheme?.lowercased()
+        if scheme == "http" || scheme == "https" || scheme == "ws" || scheme == "wss" || scheme == "ftp" {
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

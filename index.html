@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
+    <!-- Runtime loads stay local. The browser may already have downloaded this
+         file from GitHub; that request does not include files opened later. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; media-src blob: data:; font-src 'none'; connect-src 'none'; object-src 'none'; frame-src blob: about:; worker-src 'none'; form-action 'none'; base-uri 'none'">
     <title>Enhanced Local Media Host</title>
     <style>
         body {
@@ -119,7 +123,7 @@
         <button onclick="clearScene()">Clear Scene</button>
     </div>
     
-    <p class="hint">Drag the blue corner handles to resize. The opposite corner stays put. Hold Shift to keep the aspect ratio.</p>
+    <p class="hint">Drag the blue corner handles to resize. The opposite corner stays put. Hold Shift to keep the aspect ratio. Chosen files stay in this window and are not sent to a server.</p>
     
     <div id="fileDropZone" class="file-drop-zone">
         <p>Drag files here or onto the canvas, or click here to choose files</p>
@@ -131,6 +135,70 @@
     </div>
     
     <script>
+        // Block runtime calls that could report a filename, file details, or
+        // playback. blob: and data: URLs are local, including blob URLs whose
+        // text contains the page address. The blocked count stores no URLs.
+        var __localOnly = { blocked: 0 };
+        function noteBlocked() { __localOnly.blocked += 1; }
+        function isLocalResource(value) {
+            var text = String(value == null ? '' : value).replace(/^\s+/, '').toLowerCase();
+            if (text === '' || text === 'about:blank') return true;
+            return text.indexOf('blob:') === 0 || text.indexOf('data:') === 0;
+        }
+        function guardURLProperty(proto, prop) {
+            var desc = Object.getOwnPropertyDescriptor(proto, prop);
+            if (!desc || typeof desc.set !== 'function') return;
+            Object.defineProperty(proto, prop, {
+                configurable: true,
+                enumerable: desc.enumerable,
+                get: desc.get,
+                set: function(value) {
+                    if (!isLocalResource(value)) { noteBlocked(); return; }
+                    desc.set.call(this, value);
+                }
+            });
+        }
+        ['src'].forEach(function(prop) {
+            [HTMLImageElement, HTMLMediaElement, HTMLIFrameElement, HTMLScriptElement, HTMLSourceElement, HTMLEmbedElement].forEach(function(ctor) {
+                if (ctor && ctor.prototype) guardURLProperty(ctor.prototype, prop);
+            });
+        });
+        if (window.HTMLObjectElement) guardURLProperty(HTMLObjectElement.prototype, 'data');
+        if (window.HTMLAnchorElement) guardURLProperty(HTMLAnchorElement.prototype, 'href');
+        if (window.HTMLLinkElement) guardURLProperty(HTMLLinkElement.prototype, 'href');
+        if (window.HTMLFormElement) guardURLProperty(HTMLFormElement.prototype, 'action');
+        var originalSetAttribute = Element.prototype.setAttribute;
+        Element.prototype.setAttribute = function(name, value) {
+            var attr = String(name).toLowerCase();
+            if ((attr === 'src' || attr === 'href' || attr === 'data' || attr === 'action' || attr === 'ping') && !isLocalResource(value)) {
+                noteBlocked();
+                return;
+            }
+            originalSetAttribute.call(this, name, value);
+        };
+        function refuseNetwork() {
+            noteBlocked();
+            throw new Error('LocalFileHost does not contact a server');
+        }
+        window.fetch = function() {
+            noteBlocked();
+            return Promise.reject(new Error('LocalFileHost does not contact a server'));
+        };
+        XMLHttpRequest.prototype.open = function() { refuseNetwork(); };
+        if (navigator.sendBeacon) navigator.sendBeacon = function() { noteBlocked(); return false; };
+        window.WebSocket = function() { refuseNetwork(); };
+        window.EventSource = function() { refuseNetwork(); };
+        window.Worker = function() { refuseNetwork(); };
+        window.open = function() { noteBlocked(); return null; };
+        document.addEventListener('submit', function(e) { e.preventDefault(); noteBlocked(); }, true);
+        document.addEventListener('click', function(e) {
+            var node = e.target;
+            while (node && node !== document) {
+                if (node.tagName === 'A') { e.preventDefault(); noteBlocked(); return; }
+                node = node.parentNode;
+            }
+        }, true);
+
         const sceneContainer = document.getElementById('sceneContainer');
         const dropZone = document.getElementById('fileDropZone');
         const fileInput = document.getElementById('fileInput');
@@ -196,14 +264,28 @@
             });
         });
         
-        // Clicking the drop zone opens the file picker
-        dropZone.addEventListener('click', function() {
+        var defaultAccept = fileInput.accept;
+        // Add Video / Add Image narrow the picker. The drop zone accepts every local type.
+        function chooseFiles(accept) {
+            fileInput.accept = accept || defaultAccept;
+            fileInput.dataset.pickerAccept = fileInput.accept;
             fileInput.click();
+        }
+        
+        // Clicking the drop zone opens the file picker. The hidden input lives
+        // inside this zone, so ignore the click chooseFiles sends to it.
+        dropZone.addEventListener('click', function(e) {
+            if (e.target === fileInput) return;
+            chooseFiles(defaultAccept);
         });
         
         fileInput.addEventListener('change', function(e) {
             handleFiles(e.target.files, null);
             fileInput.value = ''; // allow choosing the same file again
+            fileInput.accept = defaultAccept;
+        });
+        fileInput.addEventListener('cancel', function() {
+            fileInput.accept = defaultAccept;
         });
         
         function handleFiles(files, pos) {
@@ -312,6 +394,8 @@
         
         function addPdf(src, pos) {
             const frame = document.createElement('iframe');
+            frame.setAttribute('sandbox', 'allow-same-origin');
+            frame.referrerPolicy = 'no-referrer';
             frame.src = src;
             frame.style.width = '100%';
             frame.style.height = '100%';
@@ -335,14 +419,14 @@
             });
         }
         
-        // Sample video from URL (toolbar button)
+        // Local video file (toolbar button). Nothing is downloaded or uploaded.
         function addMediaElement() {
-            addVideo('https://sample-videos.com/video123/mp4/768x432_1mb.mp4', null);
+            chooseFiles('video/*');
         }
         
-        // Placeholder image (toolbar button)
+        // Local image file (toolbar button). Nothing is downloaded or uploaded.
         function addImageButton() {
-            addImage('https://placehold.co/200x150', null);
+            chooseFiles('image/*');
         }
         
         // Text box (toolbar button)

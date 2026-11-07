@@ -44,6 +44,16 @@
             overflow: hidden;
         }
         
+        .media-content img,
+        .media-content video {
+            image-rendering: auto;
+        }
+        
+        .media-element.source-hidden {
+            visibility: hidden;
+            pointer-events: none;
+        }
+        
         .selected {
             border-color: #007bff;
             box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
@@ -66,10 +76,25 @@
         }
         
         .file-drop-zone {
+            position: relative;
             border: 2px dashed #ccc;
             padding: 20px;
             text-align: center;
             cursor: pointer;
+        }
+        
+        /* WKWebView ignores a display:none file input, so this stays
+           focusable for the system open panel while remaining unseen. */
+        .file-input-proxy {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 1px;
+            height: 1px;
+            margin: 0;
+            padding: 0;
+            opacity: 0.02;
+            border: 0;
         }
         
         .drag-over {
@@ -138,6 +163,73 @@
         #layerList button.selected {
             border: 2px solid #007bff;
         }
+        
+        .source-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin: 4px 0;
+            padding: 4px;
+            border: 1px solid #ccc;
+        }
+        
+        .source-row.selected {
+            border-color: #007bff;
+        }
+        
+        .source-row.drop-target {
+            outline: 2px solid #007bff;
+        }
+        
+        .source-row button {
+            width: auto;
+            display: inline-block;
+            margin: 0;
+            padding: 4px 6px;
+        }
+        
+        .source-name {
+            flex: 1;
+            min-width: 0;
+            width: 100%;
+        }
+        
+        #exitFullscreenButton {
+            display: none;
+        }
+        
+        body.presenting {
+            padding: 0;
+            background: #000;
+            overflow: hidden;
+        }
+        
+        body.presenting .controls,
+        body.presenting h1,
+        body.presenting .hint,
+        body.presenting .file-drop-zone,
+        body.presenting .layers,
+        body.presenting #fullscreenButton {
+            display: none;
+        }
+        
+        body.presenting .workspace {
+            position: fixed;
+            inset: 0;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+        }
+        
+        body.presenting #exitFullscreenButton {
+            display: block;
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            z-index: 30;
+        }
     </style>
 </head>
 <body>
@@ -160,13 +252,14 @@
         <button onclick="clearScene()">Clear Scene</button>
         <button type="button" id="muteAllButton" aria-pressed="false">Mute All: Off</button>
         <button type="button" id="loopAllButton" aria-pressed="false">Loop All: Off</button>
+        <button type="button" id="fullscreenButton" title="Shows the whole canvas as large as the screen allows, keeping its shape. This does not create detail beyond the original file.">Fullscreen</button>
     </div>
     
     <p class="hint">Drag the blue corner handles to resize. The opposite corner stays put. Hold Shift to keep the aspect ratio. Items may hang off the canvas so a widescreen picture can line up with a frame; the canvas clips what you see. Chosen files stay in this window and are not sent to a server.</p>
     
     <div id="fileDropZone" class="file-drop-zone">
         <p>Drag files here or onto the canvas, or click here to choose files</p>
-        <input type="file" id="fileInput" style="display: none;" multiple accept="image/*,video/*,audio/*,application/pdf,text/*,.md,.json,.csv,.log">
+        <input type="file" id="fileInput" class="file-input-proxy" multiple accept="image/*,video/*,audio/*,application/pdf,text/*,.md,.json,.csv,.log">
     </div>
     
     <div class="workspace">
@@ -174,24 +267,19 @@
             <!-- Media elements will be added here -->
         </div>
         <aside class="layers" id="layerPanel">
-            <h2>Layers</h2>
-            <p class="layer-note">Front is listed first. An item that sits outside the canvas stays in this list.</p>
+            <h2>Sources</h2>
+            <p class="layer-note">The top row is in front. Hide and lock apply on the canvas. Names stay in this window only.</p>
             <div class="opacity-row">
                 <label>Opacity
                     <input id="opacityInput" type="range" min="0" max="100" value="100" disabled>
                 </label>
                 <span id="opacityValue">100%</span>
             </div>
-            <div class="layer-actions">
-                <button type="button" id="layerFront">Front</button>
-                <button type="button" id="layerForward">Forward</button>
-                <button type="button" id="layerBackward">Backward</button>
-                <button type="button" id="layerBack">Back</button>
-                <button type="button" id="layerShow">Bring into view</button>
-            </div>
-            <div id="layerList"></div>
+            <button type="button" id="layerShow">Bring into view</button>
+            <div id="layerList" role="listbox" aria-label="Sources"></div>
         </aside>
     </div>
+    <button type="button" id="exitFullscreenButton" hidden>Exit fullscreen</button>
     
     <script>
         // Block runtime calls that could report a filename, file details, or
@@ -521,7 +609,11 @@
             });
             selectedElement = element;
             if (element) element.classList.add('selected');
-            refreshLayers();
+            updateSourceSelection();
+        }
+        
+        function isLocked(el) {
+            return !!(el && el.dataset.locked === '1');
         }
         
         function makeDraggable(element) {
@@ -533,8 +625,8 @@
                 // Corner handles resize. They must not also start a move.
                 if (e.target.closest && e.target.closest('.resize-handle')) return;
                 if (e.button !== 0) return;
-                
                 selectElement(element);
+                if (isLocked(element)) return;
                 
                 // Remember where inside the element the mouse grabbed it
                 const rect = element.getBoundingClientRect();
@@ -666,6 +758,10 @@
                     if (e.button !== 0) return;
                     e.preventDefault();
                     e.stopPropagation();
+                    if (isLocked(element)) {
+                        selectElement(element);
+                        return;
+                    }
                     try { handle.setPointerCapture(e.pointerId); } catch (err) {}
                     startResize(element, spec, e);
                 });
@@ -829,73 +925,174 @@
             });
         }
         
-        function layerLabel(el) {
+        function defaultSourceName(el) {
             var kind = el.dataset.kind || 'item';
             return kind.charAt(0).toUpperCase() + kind.slice(1) + ' ' + el.dataset.layerId;
         }
         
-        function refreshLayers() {
-            var list = document.getElementById('layerList');
-            list.textContent = '';
-            layerItems().forEach(function(el) {
-                var row = document.createElement('button');
-                row.type = 'button';
-                row.className = 'layer-row' + (el === selectedElement ? ' selected' : '');
-                row.textContent = layerLabel(el);
-                row.addEventListener('click', function() { selectElement(el); });
-                list.appendChild(row);
+        function sourceName(el) {
+            var custom = el.dataset.sourceName;
+            if (custom && custom.trim()) return custom.trim().slice(0, 48);
+            return defaultSourceName(el);
+        }
+        
+        function assignStackOrder(items) {
+            var z = 1;
+            for (var i = items.length - 1; i >= 0; i--) {
+                items[i].style.zIndex = String(z++);
+            }
+        }
+        
+        function moveSource(el, direction) {
+            var items = layerItems();
+            var index = items.indexOf(el);
+            var next = index + direction;
+            if (index < 0 || next < 0 || next >= items.length) return;
+            var moved = items.splice(index, 1)[0];
+            items.splice(next, 0, moved);
+            assignStackOrder(items);
+            refreshLayers();
+        }
+        
+        function updateSourceSelection() {
+            var selectedId = selectedElement ? selectedElement.dataset.layerId : '';
+            document.querySelectorAll('#layerList .source-row').forEach(function(row) {
+                var on = row.dataset.layerId === selectedId;
+                row.classList.toggle('selected', on);
+                row.setAttribute('aria-selected', on ? 'true' : 'false');
             });
             var opacity = document.getElementById('opacityInput');
             var readout = document.getElementById('opacityValue');
+            if (!opacity || !readout) return;
             if (!selectedElement) {
                 opacity.disabled = true;
                 opacity.value = '100';
                 readout.textContent = '100%';
-            } else {
-                opacity.disabled = false;
-                var parsed = parseFloat(selectedElement.style.opacity);
-                var value = Math.round((isNaN(parsed) ? 1 : parsed) * 100);
-                opacity.value = String(value);
-                readout.textContent = value + '%';
+                return;
             }
+            opacity.disabled = false;
+            var parsed = parseFloat(selectedElement.style.opacity);
+            var value = Math.round((isNaN(parsed) ? 1 : parsed) * 100);
+            opacity.value = String(value);
+            readout.textContent = value + '%';
         }
         
-        function swapZ(a, b) {
-            var z = a.style.zIndex;
-            a.style.zIndex = b.style.zIndex;
-            b.style.zIndex = z;
-            refreshLayers();
-        }
-        
-        function bringForward() {
-            if (!selectedElement) return;
-            var items = layerItems();
-            var i = items.indexOf(selectedElement);
-            if (i <= 0) return;
-            swapZ(selectedElement, items[i - 1]);
-        }
-        
-        function sendBackward() {
-            if (!selectedElement) return;
-            var items = layerItems();
-            var i = items.indexOf(selectedElement);
-            if (i < 0 || i >= items.length - 1) return;
-            swapZ(selectedElement, items[i + 1]);
-        }
-        
-        function bringToFront() {
-            if (!selectedElement) return;
-            selectedElement.style.zIndex = String(nextZ() + 1);
-            refreshLayers();
-        }
-        
-        function sendToBack() {
-            if (!selectedElement) return;
-            var min = 0;
-            layerItems().forEach(function(el) {
-                min = Math.min(min, parseInt(el.style.zIndex, 10) || 0);
+        function refreshLayers() {
+            var list = document.getElementById('layerList');
+            if (!list) return;
+            list.textContent = '';
+            layerItems().forEach(function(el, index, items) {
+                var name = sourceName(el);
+                var hidden = el.classList.contains('source-hidden');
+                var locked = isLocked(el);
+                var row = document.createElement('div');
+                row.className = 'source-row' + (el === selectedElement ? ' selected' : '');
+                row.dataset.layerId = el.dataset.layerId;
+                row.setAttribute('role', 'option');
+                row.setAttribute('aria-selected', el === selectedElement ? 'true' : 'false');
+                
+                var drag = document.createElement('button');
+                drag.type = 'button';
+                drag.className = 'source-drag';
+                drag.draggable = true;
+                drag.textContent = 'Drag';
+                drag.setAttribute('aria-label', 'Reorder ' + name);
+                drag.addEventListener('dragstart', function(e) {
+                    e.dataTransfer.setData('text/plain', el.dataset.layerId);
+                    e.dataTransfer.effectAllowed = 'move';
+                });
+                drag.addEventListener('dragover', function(e) {
+                    e.preventDefault();
+                    row.classList.add('drop-target');
+                });
+                drag.addEventListener('dragleave', function() {
+                    row.classList.remove('drop-target');
+                });
+                drag.addEventListener('drop', function(e) {
+                    e.preventDefault();
+                    row.classList.remove('drop-target');
+                    var fromId = e.dataTransfer.getData('text/plain');
+                    reorderSource(fromId, el.dataset.layerId);
+                });
+                
+                var up = document.createElement('button');
+                up.type = 'button';
+                up.className = 'source-up';
+                up.textContent = 'Up';
+                up.disabled = index === 0;
+                up.setAttribute('aria-label', 'Move ' + name + ' up');
+                up.addEventListener('click', function() { moveSource(el, -1); });
+                
+                var down = document.createElement('button');
+                down.type = 'button';
+                down.className = 'source-down';
+                down.textContent = 'Down';
+                down.disabled = index === items.length - 1;
+                down.setAttribute('aria-label', 'Move ' + name + ' down');
+                down.addEventListener('click', function() { moveSource(el, 1); });
+                
+                var hide = document.createElement('button');
+                hide.type = 'button';
+                hide.className = 'source-hide';
+                hide.textContent = hidden ? 'Show' : 'Hide';
+                hide.setAttribute('aria-pressed', hidden ? 'true' : 'false');
+                hide.setAttribute('aria-label', (hidden ? 'Show ' : 'Hide ') + name);
+                hide.addEventListener('click', function() {
+                    el.classList.toggle('source-hidden');
+                    refreshLayers();
+                });
+                
+                var lock = document.createElement('button');
+                lock.type = 'button';
+                lock.className = 'source-lock';
+                lock.textContent = locked ? 'Unlock' : 'Lock';
+                lock.setAttribute('aria-pressed', locked ? 'true' : 'false');
+                lock.setAttribute('aria-label', (locked ? 'Unlock ' : 'Lock ') + name);
+                lock.addEventListener('click', function() {
+                    el.dataset.locked = locked ? '0' : '1';
+                    refreshLayers();
+                });
+                
+                var label = document.createElement('input');
+                label.type = 'text';
+                label.className = 'source-name';
+                label.value = name;
+                label.maxLength = 48;
+                label.setAttribute('aria-label', 'Source name');
+                label.addEventListener('input', function() {
+                    el.dataset.sourceName = label.value.slice(0, 48);
+                });
+                label.addEventListener('focus', function() { selectElement(el); });
+                label.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+                
+                row.addEventListener('click', function(e) {
+                    if (e.target.closest('button')) return;
+                    selectElement(el);
+                });
+                row.appendChild(drag);
+                row.appendChild(up);
+                row.appendChild(down);
+                row.appendChild(hide);
+                row.appendChild(lock);
+                row.appendChild(label);
+                list.appendChild(row);
             });
-            selectedElement.style.zIndex = String(min - 1);
+            updateSourceSelection();
+        }
+        
+        function reorderSource(fromId, toId) {
+            if (!fromId || fromId === toId) return;
+            var items = layerItems();
+            var from = -1;
+            var to = -1;
+            items.forEach(function(el, i) {
+                if (el.dataset.layerId === fromId) from = i;
+                if (el.dataset.layerId === toId) to = i;
+            });
+            if (from < 0 || to < 0) return;
+            var moved = items.splice(from, 1)[0];
+            items.splice(to, 0, moved);
+            assignStackOrder(items);
             refreshLayers();
         }
         
@@ -915,12 +1112,81 @@
             moveElement(el, left, top);
         }
         
+        function presentationScale() {
+            var boxW = sceneContainer.offsetWidth;
+            var boxH = sceneContainer.offsetHeight;
+            if (!boxW || !boxH) return 1;
+            return Math.min(window.innerWidth / boxW, window.innerHeight / boxH);
+        }
+        
+        // Scale the live scene with a CSS transform. Video and images stay
+        // the original elements, so this does not re-encode them. A scale
+        // above 1 does not invent detail the file does not have.
+        function applyPresentationScale() {
+            if (!document.body.classList.contains('presenting')) {
+                sceneContainer.style.transform = '';
+                sceneContainer.style.transformOrigin = '';
+                delete sceneContainer.dataset.presentationScale;
+                return;
+            }
+            var scale = presentationScale();
+            var next = 'scale(' + scale.toFixed(6) + ')';
+            sceneContainer.style.transformOrigin = 'center center';
+            if (sceneContainer.style.transform !== next) sceneContainer.style.transform = next;
+            sceneContainer.dataset.presentationScale = scale.toFixed(6);
+        }
+        
+        function leavePresentationLayout() {
+            document.body.classList.remove('presenting');
+            var exitButton = document.getElementById('exitFullscreenButton');
+            if (exitButton) exitButton.hidden = true;
+            sceneContainer.style.transform = '';
+            sceneContainer.style.transformOrigin = '';
+            delete sceneContainer.dataset.presentationScale;
+        }
+        
+        function enterFullscreen() {
+            if (document.body.classList.contains('presenting')) return;
+            document.body.classList.add('presenting');
+            document.getElementById('exitFullscreenButton').hidden = false;
+            applyPresentationScale();
+            var root = document.documentElement;
+            var request = root.requestFullscreen || root.webkitRequestFullscreen;
+            if (typeof request === 'function') {
+                var pending = request.call(root);
+                if (pending && typeof pending.catch === 'function') pending.catch(function() {});
+            }
+        }
+        
+        function exitFullscreen() {
+            leavePresentationLayout();
+            var active = document.fullscreenElement || document.webkitFullscreenElement;
+            var exit = document.exitFullscreen || document.webkitExitFullscreen;
+            if (active && typeof exit === 'function') {
+                var pending = exit.call(document);
+                if (pending && typeof pending.catch === 'function') pending.catch(function() {});
+            }
+        }
+        
+        document.addEventListener('fullscreenchange', function() {
+            var active = document.fullscreenElement || document.webkitFullscreenElement;
+            if (!active && document.body.classList.contains('presenting')) leavePresentationLayout();
+        });
+        document.addEventListener('webkitfullscreenchange', function() {
+            var active = document.fullscreenElement || document.webkitFullscreenElement;
+            if (!active && document.body.classList.contains('presenting')) leavePresentationLayout();
+        });
+        window.addEventListener('resize', applyPresentationScale);
+        document.addEventListener('keydown', function(e) {
+            if (e.key !== 'Escape' || !document.body.classList.contains('presenting')) return;
+            if (document.fullscreenElement || document.webkitFullscreenElement) return;
+            exitFullscreen();
+        });
+        
         document.getElementById('muteAllButton').addEventListener('click', toggleMuteAll);
         document.getElementById('loopAllButton').addEventListener('click', toggleLoopAll);
-        document.getElementById('layerFront').addEventListener('click', bringToFront);
-        document.getElementById('layerForward').addEventListener('click', bringForward);
-        document.getElementById('layerBackward').addEventListener('click', sendBackward);
-        document.getElementById('layerBack').addEventListener('click', sendToBack);
+        document.getElementById('fullscreenButton').addEventListener('click', enterFullscreen);
+        document.getElementById('exitFullscreenButton').addEventListener('click', exitFullscreen);
         document.getElementById('layerShow').addEventListener('click', bringIntoView);
         document.getElementById('opacityInput').addEventListener('input', function(e) {
             if (!selectedElement) return;

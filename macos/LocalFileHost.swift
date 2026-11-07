@@ -5,6 +5,7 @@
 // cannot drift apart. This file is only the macOS window around that page.
 
 import AppKit
+import UniformTypeIdentifiers
 import WebKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
@@ -70,6 +71,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         // HTTP cache on disk, and it does not record the files you open.
         config.websiteDataStore = WKWebsiteDataStore.nonPersistent()
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
+        // Lets the page fullscreen the whole canvas, not a single video element.
+        // Available on macOS 12.3 and later. The page still scales inside the
+        // window if the system refuses the request.
+        if #available(macOS 12.3, *) {
+            config.preferences.isElementFullscreenEnabled = true
+        }
         let script = WKUserScript(
             source: AppDelegate.fileDropGuard,
             injectionTime: .atDocumentStart,
@@ -128,6 +135,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         nil
+    }
+
+    // A hidden or script-clicked file input does nothing in WKWebView unless
+    // the app presents the panel. URLs are handed back to WebKit and are not logged.
+    func webView(
+        _ webView: WKWebView,
+        runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping ([URL]?) -> Void
+    ) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.resolvesAliases = true
+        panel.prompt = "Choose"
+        panel.message = "Choose media to show on the canvas"
+        if #available(macOS 11.0, *) {
+            panel.allowedContentTypes = AppDelegate.mediaContentTypes
+        }
+        panel.allowsOtherFileTypes = true
+        panel.begin { response in
+            if response == .OK && !panel.urls.isEmpty {
+                completionHandler(panel.urls)
+            } else {
+                completionHandler(nil)
+            }
+        }
+    }
+
+    private static var mediaContentTypes: [UTType] {
+        var types: [UTType] = [.image, .movie, .audio, .pdf, .plainText, .text, .json]
+        if let csv = UTType(filenameExtension: "csv") { types.append(csv) }
+        if let markdown = UTType(filenameExtension: "md") { types.append(markdown) }
+        if let log = UTType(filenameExtension: "log") { types.append(log) }
+        return types
     }
 
     func webView(

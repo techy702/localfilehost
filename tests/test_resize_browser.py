@@ -564,7 +564,7 @@ class ResizeBrowserTests(unittest.TestCase):
             "hidden",
         )
         self.page.evaluate("addText(); addText()")
-        rows = self.page.locator("#layerList button")
+        rows = self.page.locator(".source-row")
         self.assertEqual(rows.count(), 2)
         self.assertNotIn("http", rows.nth(0).inner_text())
         front = self.page.evaluate(
@@ -574,8 +574,7 @@ class ResizeBrowserTests(unittest.TestCase):
             }"""
         )
         self.assertGreater(front[1]["z"], front[0]["z"])
-        self.page.locator("#layerList button").first.click()
-        self.page.locator("#layerBackward").click()
+        self.page.locator(".source-row").first.locator(".source-down").click()
         swapped = self.page.evaluate(
             """() => Array.from(document.querySelectorAll('.media-element')).map(el => Number(el.style.zIndex))"""
         )
@@ -604,7 +603,7 @@ class ResizeBrowserTests(unittest.TestCase):
         hung = self.metrics()
         self.assertLess(hung["left"], 0)
         self.assertLess(hung["top"], 0)
-        self.assertEqual(self.page.locator("#layerList button").count(), 2)
+        self.assertEqual(self.page.locator(".source-row").count(), 2)
         self.page.evaluate(
             """() => {
                 const el = document.querySelector('.media-element.selected');
@@ -612,7 +611,6 @@ class ResizeBrowserTests(unittest.TestCase):
                 el.style.top = '-700px';
             }"""
         )
-        self.page.locator("#layerList button.selected").click()
         self.page.locator("#layerShow").click()
         overlap = self.page.evaluate(
             """() => {
@@ -681,6 +679,141 @@ class ResizeBrowserTests(unittest.TestCase):
         self.assertTrue(transport["audioLoop"])
         self.assertTrue(transport["videoLoop"])
         self.assertFalse(transport["audioMuted"])
+        self.assertEqual(self.http_requests, [])
+
+    def test_sources_hide_lock_reorder_and_local_rename(self):
+        self.page.evaluate("addText(); addText()")
+        self.assertEqual(self.page.locator(".source-row").first.locator(".source-name").input_value(), "Text 2")
+        self.page.locator(".source-row").nth(1).locator(".source-up").click()
+        order = self.page.evaluate(
+            """() => Array.from(document.querySelectorAll('.source-row .source-name')).map(el => el.value)"""
+        )
+        self.assertEqual(order[0], "Text 1")
+        self.page.locator(".source-drag").nth(1).drag_to(self.page.locator(".source-drag").first)
+        dragged = self.page.evaluate(
+            """() => Array.from(document.querySelectorAll('.media-element')).map(el => Number(el.style.zIndex))"""
+        )
+        self.assertGreater(dragged[1], dragged[0])
+        self.page.locator(".source-row").first.locator(".source-hide").click()
+        hidden = self.page.evaluate(
+            """() => getComputedStyle(document.querySelector('.media-element.source-hidden')).visibility"""
+        )
+        self.assertEqual(hidden, "hidden")
+        self.assertEqual(self.page.locator(".source-row").count(), 2)
+        self.page.locator(".source-row").first.locator(".source-name").click()
+        self.assertTrue(
+            self.page.evaluate(
+                """() => document.querySelector('.media-element.selected').classList.contains('source-hidden')"""
+            )
+        )
+        self.page.locator(".source-row.selected .source-hide").click()
+        self.page.locator(".source-row").first.locator(".source-lock").click()
+        locked = self.page.locator(".media-element[data-locked='1']")
+        before = locked.evaluate("el => el.style.left")
+        box = locked.bounding_box()
+        self.page.mouse.move(box["x"] + 40, box["y"] + 40)
+        self.page.mouse.down()
+        self.page.mouse.move(box["x"] + 140, box["y"] + 80, steps=6)
+        self.page.mouse.up()
+        self.assertEqual(locked.evaluate("el => el.style.left"), before)
+        self.page.locator(".source-row").first.locator(".source-lock").click()
+        self.page.locator(".source-name").first.fill("Overlay frame")
+        self.page.locator(".source-name").first.blur()
+        self.assertEqual(self.page.locator(".source-name").first.input_value(), "Overlay frame")
+        self.assertEqual(self.page.evaluate("() => localStorage.length"), 0)
+        self.assertEqual(self.http_requests, [])
+
+    def test_fullscreen_scales_the_scene_and_keeps_playback(self):
+        self.page.locator("#fileInput").set_input_files(str(self.mp4))
+        self.page.wait_for_selector("video")
+        self.page.evaluate("addText()")
+        self.page.evaluate("() => document.querySelector('video').play()")
+        self.wait_until("document.querySelector('video').currentTime > 0")
+        before = self.page.evaluate(
+            """() => {
+                const video = document.querySelector('video');
+                const items = Array.from(document.querySelectorAll('.media-element'));
+                return {
+                    paused: video.paused,
+                    left: items.map(el => el.style.left),
+                    top: items.map(el => el.style.top),
+                    opacity: items.map(el => el.style.opacity),
+                    z: items.map(el => el.style.zIndex)
+                };
+            }"""
+        )
+        self.page.locator("#fullscreenButton").click()
+        self.page.wait_for_timeout(100)
+        presented = self.page.evaluate(
+            """() => {
+                const scene = document.getElementById('sceneContainer');
+                const scale = Number(scene.dataset.presentationScale);
+                const expected = Math.min(window.innerWidth / scene.offsetWidth, window.innerHeight / scene.offsetHeight);
+                const nodes = Array.from(document.querySelectorAll('.media-element'));
+                const a = nodes[0].getBoundingClientRect();
+                const b = nodes[1].getBoundingClientRect();
+                return {
+                    presenting: document.body.classList.contains('presenting'),
+                    scale: scale,
+                    expected: expected,
+                    layoutDx: nodes[1].offsetLeft - nodes[0].offsetLeft,
+                    screenDx: b.left - a.left,
+                    layoutW: nodes[0].offsetWidth,
+                    screenW: a.width,
+                    overflow: getComputedStyle(scene).overflow,
+                    layers: getComputedStyle(document.getElementById('layerPanel')).display,
+                    exitVisible: getComputedStyle(document.getElementById('exitFullscreenButton')).display,
+                    fullscreen: !!(document.fullscreenElement || document.webkitFullscreenElement)
+                };
+            }"""
+        )
+        self.assertTrue(presented["presenting"])
+        self.assertAlmostEqual(presented["scale"], presented["expected"], places=3)
+        self.assertAlmostEqual(presented["screenDx"], presented["layoutDx"] * presented["scale"], delta=2)
+        self.assertAlmostEqual(presented["screenW"], presented["layoutW"] * presented["scale"], delta=2)
+        self.assertEqual(presented["overflow"], "hidden")
+        self.assertEqual(presented["layers"], "none")
+        self.assertNotEqual(presented["exitVisible"], "none")
+        self.page.set_viewport_size({"width": 900, "height": 900})
+        self.page.wait_for_timeout(50)
+        resized = self.page.evaluate(
+            """() => {
+                const scene = document.getElementById('sceneContainer');
+                const expected = Math.min(window.innerWidth / scene.offsetWidth, window.innerHeight / scene.offsetHeight);
+                return { scale: Number(scene.dataset.presentationScale), expected: expected };
+            }"""
+        )
+        self.assertAlmostEqual(resized["scale"], resized["expected"], places=3)
+        self.wait_until("document.querySelector('video').currentTime > 0.05")
+        self.assertFalse(self.page.evaluate("() => document.querySelector('video').paused"))
+        self.page.keyboard.press("Escape")
+        self.page.wait_for_timeout(100)
+        if self.page.evaluate("() => document.body.classList.contains('presenting')"):
+            self.page.locator("#exitFullscreenButton").click()
+        restored = self.page.evaluate(
+            """() => {
+                const video = document.querySelector('video');
+                const items = Array.from(document.querySelectorAll('.media-element'));
+                return {
+                    presenting: document.body.classList.contains('presenting'),
+                    transform: document.getElementById('sceneContainer').style.transform,
+                    paused: video.paused,
+                    left: items.map(el => el.style.left),
+                    top: items.map(el => el.style.top),
+                    opacity: items.map(el => el.style.opacity),
+                    z: items.map(el => el.style.zIndex),
+                    layers: getComputedStyle(document.getElementById('layerPanel')).display
+                };
+            }"""
+        )
+        self.assertFalse(restored["presenting"])
+        self.assertEqual(restored["transform"], "")
+        self.assertFalse(restored["paused"])
+        self.assertEqual(restored["left"], before["left"])
+        self.assertEqual(restored["top"], before["top"])
+        self.assertEqual(restored["opacity"], before["opacity"])
+        self.assertEqual(restored["z"], before["z"])
+        self.assertNotEqual(restored["layers"], "none")
         self.assertEqual(self.http_requests, [])
 
 

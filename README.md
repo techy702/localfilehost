@@ -9,7 +9,7 @@ A single-page, browser-based tool for arranging media elements on a canvas, in t
 - Drag and drop images, video, audio, PDFs and text files (`.txt`, `.md`, `.json`, `.csv`, `.log`) from your file manager (Finder, Explorer) onto the drop zone or the canvas, or click the drop zone to choose files
 - Files dropped on the canvas land where you drop them
 - Images and video are sized to their natural dimensions, scaled down to fit the canvas if larger
-- Add a sample video, a placeholder image, or a text box with the toolbar buttons
+- **Add Video** and **Add Image** open the file picker for a local file. **Add Text** places a text box. None of these contact a server
 - Reposition elements on the canvas by dragging them
 - Drag the blue corner handles to resize an item. The opposite corner stays where it is, so the resize does not pick the item up and move it
 - Hold Shift while resizing to keep the item's aspect ratio. Without Shift, width and height change independently. Images and video use `object-fit: contain`, so the media stays fully visible inside the new box
@@ -30,7 +30,28 @@ A single-page, browser-based tool for arranging media elements on a canvas, in t
 ## Requirements
 
 - A modern web browser (Chrome, Firefox, Safari), or the macOS app below
-- Internet access only for the sample video and placeholder image added by the **Add Video** and **Add Image** buttons. Files you drop in are read locally. Opening the page, picking local files, and playback of those files work offline
+- The page itself can be downloaded from GitHub Pages. That download is only the app page. Choosing a file, playing it, and resizing it do not send the file name, the file, or playback activity anywhere
+- A saved `index.html` and the Mac app open local files with no network connection
+
+## Privacy
+
+LocalFileHost does not upload files you open, and it does not report filenames, file details, or playback to a server.
+
+- The [GitHub Pages](https://techy702.github.io/localfilehost/) link downloads this page from GitHub. GitHub can see that request for the page. It is made before you pick a file. It does not include which file you open later, and it does not report play, pause, or seeking.
+- After the page is open, its code does not call out. **Add Video** and **Add Image** open the local file picker. Dropped and chosen files are read into memory and shown with `blob:` URLs. Text files are read into the page the same way. A `blob:` URL is local even when the page address itself came from GitHub.
+- The Mac app loads the copy of `index.html` stored inside the app. Starting the app does not download the page from GitHub, and its window blocks `http`, `https`, `ws`, `wss`, and `ftp` loads.
+- The canvas is not saved. **Clear Scene** drops it. Closing the tab or quitting the app drops it. The app does not write a filename log, analytics, or its own crash report.
+- The Mac window uses a memory-only WebKit data store and does not restore the window contents. It does not keep a cookie jar or HTTP cache on disk for this app.
+
+This does not control the rest of the computer:
+
+- Anyone who can see the screen can see what is playing. Other apps, browser extensions, and the operating system are outside this app.
+- A browser that opened the GitHub Pages copy may keep a history entry for that page address. That entry is the page URL, not the local file you played.
+- If the app or the browser crashes, macOS or the browser may write a crash report under that system's own settings. This app does not create or send those reports. A system crash report can include process memory, so a crash dump is not guaranteed to be free of media data.
+- The system file dialog is how a file is chosen. This app does not transmit that choice.
+- A PDF is shown from a local `blob:` in a frame that is not allowed to navigate to the web. These tests did not execute every PDF engine on a Mac.
+
+There is no absolute guarantee. The controls are the page policy and, in the Mac app, the WebKit rules shipped with it.
 
 ## macOS app
 
@@ -68,7 +89,7 @@ cp -R dist/LocalFileHost.app /Applications/
 open /Applications/LocalFileHost.app
 ```
 
-You can also double-click `dist/LocalFileHost.app` in Finder. The app quits when its window is closed. Local files work offline. **Add Video** and **Add Image** still load their sample URLs from the network.
+You can also double-click `dist/LocalFileHost.app` in Finder. The app quits when its window is closed. Local files play with no network connection. **Add Video** and **Add Image** open the file picker.
 
 ### GitHub Actions
 
@@ -93,7 +114,7 @@ The ad-hoc signature lets Apple Silicon macOS launch a local binary. It is not a
 
 ### What still needs a Mac
 
-Compiling the Swift window, ad-hoc signing, confirming the Mach-O is arm64, and actually opening the window (Finder drag and drop, Gatekeeper, playback inside WKWebView) all happen on a Mac. The browser tests below cover the shared page, which is what the window loads. They do not launch the `.app`.
+Compiling the Swift window, ad-hoc signing, confirming the Mach-O is arm64, and actually opening the window still happen on a Mac. That includes Finder drag and drop, Gatekeeper, playback inside WKWebView, and whether the WebKit content rule blocks a live network attempt in the app process. The browser tests below cover the shared page, which is what the window loads, including an observation that a deliberate outbound request is not issued. They do not launch the `.app`. An Actions artifact built before this privacy change does not include it.
 
 ## Development
 

@@ -2,33 +2,51 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="referrer" content="no-referrer">
     <!-- Runtime loads stay local. The browser may already have downloaded this
          file from GitHub; that request does not include files opened later. -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; media-src blob: data:; font-src 'none'; connect-src 'none'; object-src 'none'; frame-src blob: about:; worker-src 'none'; form-action 'none'; base-uri 'none'">
     <title>Enhanced Local Media Host</title>
     <style>
+        html, body {
+            overscroll-behavior: none;
+        }
+        
         body {
             margin: 0;
             padding: 20px;
+            padding-top: max(20px, env(safe-area-inset-top));
+            padding-right: max(20px, env(safe-area-inset-right));
+            padding-bottom: max(20px, env(safe-area-inset-bottom));
+            padding-left: max(20px, env(safe-area-inset-left));
             font-family: Arial, sans-serif;
         }
         
         .workspace {
             display: flex;
+            flex-wrap: wrap;
             align-items: flex-start;
             gap: 16px;
+            max-width: 100%;
+        }
+        
+        .scene-slot {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            flex: 0 0 auto;
         }
         
         .scene-container {
-            position: relative;
+            position: absolute;
+            left: 0;
+            top: 0;
             width: 800px;
             height: 600px;
             border: 2px solid #ccc;
             background: #f5f5f5;
             overflow: hidden;
-            flex: 0 0 auto;
         }
         
         .media-element {
@@ -36,6 +54,7 @@
             border: 2px solid transparent;
             cursor: move;
             overflow: visible;
+            touch-action: none;
         }
         
         .media-content {
@@ -65,6 +84,7 @@
         
         button {
             padding: 8px 12px;
+            min-height: 44px;
             cursor: pointer;
             margin: 5px;
         }
@@ -132,6 +152,17 @@
         .resize-handle.sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
         .resize-handle.se { right: -7px; bottom: -7px; cursor: nwse-resize; }
         
+        @media (pointer: coarse) {
+            .resize-handle {
+                width: 36px;
+                height: 36px;
+            }
+            .resize-handle.nw { left: -18px; top: -18px; }
+            .resize-handle.ne { right: -18px; top: -18px; }
+            .resize-handle.sw { left: -18px; bottom: -18px; }
+            .resize-handle.se { right: -18px; bottom: -18px; }
+        }
+        
         .media-element.resizing .media-content {
             pointer-events: none;
         }
@@ -148,6 +179,9 @@
         
         .layers {
             width: 230px;
+            max-width: 100%;
+            flex: 0 1 230px;
+            box-sizing: border-box;
             font-size: 14px;
         }
         
@@ -173,6 +207,7 @@
         
         .source-row {
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 4px;
             margin: 4px 0;
@@ -188,17 +223,23 @@
             outline: 2px solid #007bff;
         }
         
-        .source-row button {
+        #layerList .source-row button {
             width: auto;
             display: inline-block;
+            min-width: 44px;
+            min-height: 44px;
             margin: 0;
-            padding: 4px 6px;
+            padding: 4px 8px;
+            text-align: center;
         }
         
         .source-name {
-            flex: 1;
+            flex: 1 1 8em;
             min-width: 0;
+            min-height: 44px;
             width: 100%;
+            box-sizing: border-box;
+            font-size: 16px;
         }
         
         #exitFullscreenButton {
@@ -233,8 +274,8 @@
         body.presenting #exitFullscreenButton {
             display: block;
             position: fixed;
-            top: 12px;
-            right: 12px;
+            top: max(12px, env(safe-area-inset-top));
+            right: max(12px, env(safe-area-inset-right));
             z-index: 30;
         }
         
@@ -257,7 +298,8 @@
             width: 100%;
             box-sizing: border-box;
             margin-top: 4px;
-            font: 14px Arial, sans-serif;
+            min-height: 44px;
+            font: 16px Arial, sans-serif;
         }
     </style>
 </head>
@@ -292,8 +334,10 @@
     </div>
     
     <div class="workspace">
-        <div class="scene-container" id="sceneContainer">
-            <!-- Media elements will be added here -->
+        <div class="scene-slot" id="sceneSlot">
+            <div class="scene-container" id="sceneContainer">
+                <!-- Media elements will be added here -->
+            </div>
         </div>
         <aside class="layers" id="layerPanel">
             <h2>Sources</h2>
@@ -536,6 +580,23 @@
             element.style.top = Math.round(top) + 'px';
         }
         
+        // Visual scale (fullscreen or a narrow phone) must not change layout pixels.
+        function sceneScale() {
+            var width = sceneContainer.offsetWidth || 1;
+            var rect = sceneContainer.getBoundingClientRect();
+            var scale = rect.width / width;
+            return scale > 0 ? scale : 1;
+        }
+        
+        function pointInScene(clientX, clientY) {
+            var rect = sceneContainer.getBoundingClientRect();
+            var scale = sceneScale();
+            return {
+                x: (clientX - rect.left) / scale - sceneContainer.clientLeft,
+                y: (clientY - rect.top) / scale - sceneContainer.clientTop
+            };
+        }
+        
         function nextZ() {
             var max = 0;
             sceneContainer.querySelectorAll('.media-element').forEach(function(el) {
@@ -663,23 +724,25 @@
             let originX = 0, originY = 0;
             let moved = false;
             
-            element.addEventListener('mousedown', function(e) {
+            element.addEventListener('pointerdown', function(e) {
                 // Corner handles resize. They must not also start a move.
                 if (e.target.closest && e.target.closest('.resize-handle')) return;
-                if (e.button !== 0) return;
+                if (e.pointerType === 'mouse' && e.button !== 0) return;
                 selectElement(element);
                 if (isLocked(element)) return;
                 
-                // Remember where inside the element the mouse grabbed it
+                // Remember where inside the element the pointer grabbed it, in layout pixels.
                 const rect = element.getBoundingClientRect();
-                offsetX = e.clientX - rect.left;
-                offsetY = e.clientY - rect.top;
+                var scale = sceneScale();
+                offsetX = (e.clientX - rect.left) / scale;
+                offsetY = (e.clientY - rect.top) / scale;
                 originX = e.clientX;
                 originY = e.clientY;
                 moved = false;
-                
-                document.addEventListener('mousemove', dragElement);
-                document.addEventListener('mouseup', stopDrag);
+                try { element.setPointerCapture(e.pointerId); } catch (err) {}
+                element.addEventListener('pointermove', dragElement);
+                element.addEventListener('pointerup', stopDrag);
+                element.addEventListener('pointercancel', stopDrag);
             });
             
             element.addEventListener('dblclick', function(e) {
@@ -706,22 +769,20 @@
                 if (Math.abs(e.clientX - originX) > 3 || Math.abs(e.clientY - originY) > 3) {
                     if (!moved) {
                         moved = true;
-                        // Keep the mouseup from landing on the play control.
+                        // Keep the pointer release from landing on the play control.
                         var frame = contentFrame();
                         if (frame) frame.style.pointerEvents = 'none';
                     }
                 }
                 if (!moved) return;
-                // Convert mouse position to canvas coordinates
-                const rect = sceneContainer.getBoundingClientRect();
-                moveElement(element,
-                    e.clientX - offsetX - rect.left - sceneContainer.clientLeft,
-                    e.clientY - offsetY - rect.top - sceneContainer.clientTop);
+                var p = pointInScene(e.clientX, e.clientY);
+                moveElement(element, p.x - offsetX, p.y - offsetY);
             }
             
             function stopDrag() {
-                document.removeEventListener('mousemove', dragElement);
-                document.removeEventListener('mouseup', stopDrag);
+                element.removeEventListener('pointermove', dragElement);
+                element.removeEventListener('pointerup', stopDrag);
+                element.removeEventListener('pointercancel', stopDrag);
                 if (!moved) return;
                 var frame = contentFrame();
                 var swallow = function(e) {
@@ -848,11 +909,12 @@
             element.classList.add('resizing');
             document.documentElement.classList.add('resize-gesture');
             document.documentElement.style.setProperty('--resize-cursor', spec.cursor);
+            var gestureScale = sceneScale();
             
             function onMove(ev) {
                 if (!element.isConnected) { onUp(); return; }
-                var rawX = ev.clientX - originX;
-                var rawY = ev.clientY - originY;
+                var rawX = (ev.clientX - originX) / gestureScale;
+                var rawY = (ev.clientY - originY) / gestureScale;
                 var box = computeResize({
                     left: state.left,
                     top: state.top,
@@ -1193,12 +1255,43 @@
         // Scale the live scene with a CSS transform. Video and images stay
         // the original elements, so this does not re-encode them. A scale
         // above 1 does not invent detail the file does not have.
-        function applyPresentationScale() {
-            if (!document.body.classList.contains('presenting')) {
+        function notifyShell(action) {
+            var handlers = window.webkit && window.webkit.messageHandlers;
+            var host = handlers && handlers.localFileHost;
+            if (host && typeof host.postMessage === 'function') host.postMessage(action);
+        }
+        
+        function applyEditorScale() {
+            var slot = document.getElementById('sceneSlot');
+            var boxW = sceneContainer.offsetWidth || 1;
+            var boxH = sceneContainer.offsetHeight || 1;
+            var styles = window.getComputedStyle(document.body);
+            var padX = (parseFloat(styles.paddingLeft) || 0) + (parseFloat(styles.paddingRight) || 0);
+            var avail = Math.max(1, window.innerWidth - padX);
+            var scale = Math.min(1, avail / boxW);
+            if (scale < 0.999) {
+                sceneContainer.style.transformOrigin = 'top left';
+                sceneContainer.style.transform = 'scale(' + scale.toFixed(6) + ')';
+            } else {
                 sceneContainer.style.transform = '';
                 sceneContainer.style.transformOrigin = '';
-                delete sceneContainer.dataset.presentationScale;
+            }
+            if (slot) {
+                slot.style.width = Math.round(boxW * scale) + 'px';
+                slot.style.height = Math.round(boxH * scale) + 'px';
+            }
+            delete sceneContainer.dataset.presentationScale;
+        }
+        
+        function applyPresentationScale() {
+            if (!document.body.classList.contains('presenting')) {
+                applyEditorScale();
                 return;
+            }
+            var slot = document.getElementById('sceneSlot');
+            if (slot) {
+                slot.style.width = sceneContainer.offsetWidth + 'px';
+                slot.style.height = sceneContainer.offsetHeight + 'px';
             }
             var scale = presentationScale();
             var next = 'scale(' + scale.toFixed(6) + ')';
@@ -1211,9 +1304,8 @@
             document.body.classList.remove('presenting');
             var exitButton = document.getElementById('exitFullscreenButton');
             if (exitButton) exitButton.hidden = true;
-            sceneContainer.style.transform = '';
-            sceneContainer.style.transformOrigin = '';
-            delete sceneContainer.dataset.presentationScale;
+            applyEditorScale();
+            notifyShell('exitFullscreen');
         }
         
         function enterFullscreen() {
@@ -1221,6 +1313,7 @@
             document.body.classList.add('presenting');
             document.getElementById('exitFullscreenButton').hidden = false;
             applyPresentationScale();
+            notifyShell('enterFullscreen');
             var root = document.documentElement;
             var request = root.requestFullscreen || root.webkitRequestFullscreen;
             if (typeof request === 'function') {
@@ -1248,6 +1341,7 @@
             if (!active && document.body.classList.contains('presenting')) leavePresentationLayout();
         });
         window.addEventListener('resize', applyPresentationScale);
+        applyEditorScale();
         document.addEventListener('keydown', function(e) {
             if (e.key !== 'Escape') return;
             if (document.body.classList.contains('presenting')) {

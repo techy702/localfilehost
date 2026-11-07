@@ -105,6 +105,7 @@
         /* Visible corner grips. Centered on the corner so they stay
            grabbable on images, video, and text. */
         .resize-handle {
+            display: none;
             position: absolute;
             width: 14px;
             height: 14px;
@@ -118,6 +119,12 @@
             z-index: 5;
             user-select: none;
             touch-action: none;
+        }
+        
+        /* Handles show only while the selected, unlocked item is being adjusted. */
+        body:not(.presenting) .media-element.selected.show-handles:not(.source-hidden):not(.source-locked) .resize-handle,
+        body:not(.presenting) .media-element.selected.resizing:not(.source-hidden):not(.source-locked) .resize-handle {
+            display: block;
         }
         
         .resize-handle.nw { left: -7px; top: -7px; cursor: nwse-resize; }
@@ -230,6 +237,28 @@
             right: 12px;
             z-index: 30;
         }
+        
+        body.presenting .resize-handle {
+            display: none !important;
+        }
+        
+        body.presenting .media-element.selected {
+            border-color: transparent;
+            box-shadow: none;
+        }
+        
+        .text-edit {
+            display: block;
+            margin: 0 0 8px;
+        }
+        
+        .text-edit textarea {
+            display: block;
+            width: 100%;
+            box-sizing: border-box;
+            margin-top: 4px;
+            font: 14px Arial, sans-serif;
+        }
     </style>
 </head>
 <body>
@@ -275,6 +304,9 @@
                 </label>
                 <span id="opacityValue">100%</span>
             </div>
+            <label class="text-edit" id="textEditLabel" hidden>Text
+                <textarea id="textEdit" rows="4" spellcheck="false" aria-label="Text on the selected source"></textarea>
+            </label>
             <button type="button" id="layerShow">Bring into view</button>
             <div id="layerList" role="listbox" aria-label="Sources"></div>
         </aside>
@@ -575,6 +607,7 @@
             pre.style.height = '100%';
             pre.style.overflow = 'auto';
             pre.style.background = '#fff';
+            pre.className = 'text-body';
             pre.style.whiteSpace = 'pre-wrap';
             file.text().then(function(text) {
                 pre.textContent = text;
@@ -595,9 +628,11 @@
         // Text box (toolbar button)
         function addText() {
             const box = document.createElement('div');
+            box.className = 'text-body';
             box.textContent = 'Sample Text';
-            box.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;' +
-                'justify-content:center;background:#e9ecef;color:black;font:16px Arial;text-align:center;';
+            box.style.cssText = 'width:100%;height:100%;box-sizing:border-box;margin:0;padding:8px;' +
+                'overflow:auto;white-space:pre-wrap;word-wrap:break-word;background:#e9ecef;' +
+                'color:black;font:16px Arial;';
             addElement(box, 200, 150, null, 'text');
         }
         
@@ -606,9 +641,16 @@
         function selectElement(element) {
             sceneContainer.querySelectorAll('.media-element').forEach(function(el) {
                 el.classList.remove('selected');
+                if (el !== element) el.classList.remove('show-handles');
             });
             selectedElement = element;
-            if (element) element.classList.add('selected');
+            if (element && !isLocked(element) && !element.classList.contains('source-hidden')) {
+                element.classList.add('selected');
+                element.classList.add('show-handles');
+            } else if (element) {
+                element.classList.add('selected');
+                element.classList.remove('show-handles');
+            }
             updateSourceSelection();
         }
         
@@ -638,6 +680,21 @@
                 
                 document.addEventListener('mousemove', dragElement);
                 document.addEventListener('mouseup', stopDrag);
+            });
+            
+            element.addEventListener('dblclick', function(e) {
+                if (element.dataset.kind !== 'text' || isLocked(element)) return;
+                selectElement(element);
+                var editor = document.getElementById('textEdit');
+                if (!editor) return;
+                editor.focus();
+                e.preventDefault();
+            });
+            element.addEventListener('mouseenter', function() {
+                if (selectedElement !== element || isLocked(element)) return;
+                if (element.classList.contains('source-hidden')) return;
+                if (document.body.classList.contains('presenting')) return;
+                element.classList.add('show-handles');
             });
             
             function contentFrame() {
@@ -821,6 +878,7 @@
             
             function onUp() {
                 element.classList.remove('resizing');
+                element.classList.remove('show-handles');
                 document.documentElement.classList.remove('resize-gesture');
                 document.documentElement.style.removeProperty('--resize-cursor');
                 document.removeEventListener('pointermove', onMove);
@@ -964,10 +1022,12 @@
             var opacity = document.getElementById('opacityInput');
             var readout = document.getElementById('opacityValue');
             if (!opacity || !readout) return;
+            var textLabel = document.getElementById('textEditLabel');
             if (!selectedElement) {
                 opacity.disabled = true;
                 opacity.value = '100';
                 readout.textContent = '100%';
+                if (textLabel) textLabel.hidden = true;
                 return;
             }
             opacity.disabled = false;
@@ -975,6 +1035,17 @@
             var value = Math.round((isNaN(parsed) ? 1 : parsed) * 100);
             opacity.value = String(value);
             readout.textContent = value + '%';
+            var textEdit = document.getElementById('textEdit');
+            if (!textLabel || !textEdit) return;
+            if (selectedElement.dataset.kind === 'text') {
+                textLabel.hidden = false;
+                var body = selectedElement.querySelector('.text-body');
+                if (document.activeElement !== textEdit) {
+                    textEdit.value = body ? body.textContent : '';
+                }
+            } else {
+                textLabel.hidden = true;
+            }
         }
         
         function refreshLayers() {
@@ -1178,9 +1249,27 @@
         });
         window.addEventListener('resize', applyPresentationScale);
         document.addEventListener('keydown', function(e) {
-            if (e.key !== 'Escape' || !document.body.classList.contains('presenting')) return;
-            if (document.fullscreenElement || document.webkitFullscreenElement) return;
-            exitFullscreen();
+            if (e.key !== 'Escape') return;
+            if (document.body.classList.contains('presenting')) {
+                if (document.fullscreenElement || document.webkitFullscreenElement) return;
+                exitFullscreen();
+                return;
+            }
+            if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+                e.target.blur();
+            }
+            selectElement(null);
+        });
+        sceneContainer.addEventListener('mousedown', function(e) {
+            if (e.target === sceneContainer) selectElement(null);
+        });
+        document.getElementById('textEdit').addEventListener('input', function(e) {
+            if (!selectedElement || selectedElement.dataset.kind !== 'text') return;
+            var body = selectedElement.querySelector('.text-body');
+            if (body) body.textContent = e.target.value;
+        });
+        document.getElementById('textEdit').addEventListener('mousedown', function(e) {
+            e.stopPropagation();
         });
         
         document.getElementById('muteAllButton').addEventListener('click', toggleMuteAll);

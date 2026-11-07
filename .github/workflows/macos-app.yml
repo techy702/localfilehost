@@ -58,6 +58,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build iOS simulator and unsigned device bundles
         run: ./scripts/build-ios.sh
+      - name: Upload simulator launch screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalFileHost-ios-simulator-launch
+          path: dist/ios-simulator-launch.png
+          if-no-files-found: ignore
       - name: Upload iOS simulator app
         uses: actions/upload-artifact@v4
         with:

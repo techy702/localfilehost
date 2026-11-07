@@ -87,10 +87,10 @@ if [[ ! -f "$SIM_APP/index.html" || ! -f "$DEVICE_APP/index.html" ]]; then
   exit 1
 fi
 
-# Launch the simulator build long enough to see that the process stays up.
-# This does not tap the screen or open the document picker.
+# Launch the simulator build, wait for the first paint, then screenshot while
+# the app is still in front. This does not tap the screen or open the document picker.
 python3 - "$SIM_APP" "$BUNDLE_ID" "$DIST/ios-simulator-launch.png" <<'PY'
-import json, subprocess, sys
+import json, subprocess, sys, time
 app, bundle, shot = sys.argv[1], sys.argv[2], sys.argv[3]
 raw = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True)
 devices = json.loads(raw)["devices"]
@@ -110,25 +110,31 @@ udid = chosen["udid"]
 subprocess.run(["xcrun", "simctl", "boot", udid], check=False)
 subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True)
 subprocess.run(["xcrun", "simctl", "install", udid, app], check=True)
-# `simctl launch --console` stays attached while the app runs. A timeout means
-# the process was still alive. An early return means it quit or crashed.
-proc = subprocess.Popen(
-    ["xcrun", "simctl", "launch", "--console", "--terminate-running-process", udid, bundle],
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
+# Return immediately so the app stays in the foreground. Closing a --console
+# session sends the app away before the screenshot.
+launched = subprocess.run(
+    ["xcrun", "simctl", "launch", "--terminate-running-process", udid, bundle],
+    check=True,
+    capture_output=True,
     text=True,
 )
-try:
-    output, _ = proc.communicate(timeout=8)
-except subprocess.TimeoutExpired:
-    proc.kill()
-    output, _ = proc.communicate()
-    print(output)
-    print(f"Simulator {chosen['name']} kept LocalFileHost running")
-else:
-    print(output)
-    sys.exit("LocalFileHost exited during launch")
+print(launched.stdout.strip())
+pid_text = launched.stdout.strip().rsplit(":", 1)[-1].strip()
+time.sleep(4)
 subprocess.run(["xcrun", "simctl", "io", udid, "screenshot", shot], check=True)
+host_alive = False
+if pid_text.isdigit():
+    host_alive = subprocess.run(["kill", "-0", pid_text]).returncode == 0
+listed = subprocess.run(
+    ["xcrun", "simctl", "spawn", udid, "launchctl", "list"],
+    capture_output=True,
+    text=True,
+)
+sim_alive = bundle in (listed.stdout or "")
+print(f"host_alive={host_alive} sim_launchctl={sim_alive}")
+if not host_alive and not sim_alive:
+    sys.exit("LocalFileHost was not running when the screenshot was taken")
+print(f"Simulator {chosen['name']} kept LocalFileHost running")
 PY
 
 zip_app() {
